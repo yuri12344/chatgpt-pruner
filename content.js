@@ -5,11 +5,16 @@
   script.onload = () => script.remove();
   (document.head || document.documentElement).appendChild(script);
 
-  // Keep profiler enabled while debugging freezes.
-  const profScript = document.createElement('script');
-  profScript.src = chrome.runtime.getURL('profiler.js');
-  profScript.onload = () => profScript.remove();
-  (document.head || document.documentElement).appendChild(profScript);
+  // Profiler is expensive. Keep it opt-in via chrome.storage.local.enableProfiler.
+  try {
+    chrome.storage.local.get({ enableProfiler: false }, (res) => {
+      if (!res || !res.enableProfiler) return;
+      const profScript = document.createElement('script');
+      profScript.src = chrome.runtime.getURL('profiler.js');
+      profScript.onload = () => profScript.remove();
+      (document.head || document.documentElement).appendChild(profScript);
+    });
+  } catch { }
 
   const PRESET_STORAGE_KEY = 'chatpruner:tuning-preset';
   const PRESET_VALUES = ['stable', 'balanced', 'snappy'];
@@ -24,10 +29,17 @@
     lastUrl: location.href,
     autoEnabled: false,
     keepLast: DEFAULTS.keepLast,
-    container: null
+    container: null,
+    pruneTimer: null,
+    pruneIdleId: null,
+    pruneQueued: false,
+    pruneInFlight: false,
+    pruneNeedsRerun: false
   };
 
   const THROTTLE_MS = 400;
+  const PRUNE_IDLE_TIMEOUT_MS = 160;
+  const PRUNE_BATCH_SIZE = 12;
   const GHOST_CLEANUP_EVERY_MS = 8000;
 
   function qs(sel, root = document) { return root.querySelector(sel); }
@@ -138,9 +150,13 @@
     return removed;
   }
 
-  function prune(keepLast) {
+  function prune(keepLast, force = false) {
     const now = Date.now();
-    if (now - state.lastPruneAt < THROTTLE_MS) return;
+    if (!force && now - state.lastPruneAt < THROTTLE_MS) return;
+    if (state.pruneInFlight) {
+      state.pruneNeedsRerun = true;
+      return;
+    }
     state.lastPruneAt = now;
 
     const turns = findTurnsGlobal();
@@ -163,22 +179,81 @@
     const parent = toRemove[0].parentElement || container || document.body;
 
     ensurePlaceholder(parent, toRemove.length, keepLast);
-    for (const node of toRemove) node.remove();
+    state.pruneInFlight = true;
 
-    const ghosts = cleanupGhostTurns(true);
-    logStatus(`Podado: removi ${toRemove.length} turns. Limpou ${ghosts} fantasmas. Mantive ${keepLast}.`);
+    let idx = 0;
+    const total = toRemove.length;
+
+    const step = () => {
+      const limit = Math.min(total, idx + PRUNE_BATCH_SIZE);
+      for (; idx < limit; idx++) {
+        const node = toRemove[idx];
+        if (node && node.isConnected) node.remove();
+      }
+
+      if (idx < total) {
+        requestAnimationFrame(step);
+        return;
+      }
+
+      state.pruneInFlight = false;
+      const ghosts = cleanupGhostTurns(true);
+      logStatus(`Podado: removi ${total} turns. Limpou ${ghosts} fantasmas. Mantive ${keepLast}.`);
+
+      if (state.pruneNeedsRerun) {
+        state.pruneNeedsRerun = false;
+        prune(state.keepLast, true);
+      }
+    };
+
+    requestAnimationFrame(step);
+  }
+
+
+  function schedulePrune() {
+    if (!state.autoEnabled || state.pruneQueued) return;
+    state.pruneQueued = true;
+
+    const run = () => {
+      state.pruneQueued = false;
+      state.pruneTimer = null;
+      state.pruneIdleId = null;
+      prune(state.keepLast);
+    };
+
+    if (typeof requestIdleCallback === 'function') {
+      state.pruneIdleId = requestIdleCallback(run, { timeout: PRUNE_IDLE_TIMEOUT_MS });
+      return;
+    }
+
+    state.pruneTimer = setTimeout(run, 0);
   }
 
   function disconnectObservers() {
     if (state.observer) { state.observer.disconnect(); state.observer = null; }
     if (state.retryTimer) { clearInterval(state.retryTimer); state.retryTimer = null; }
+    if (state.pruneTimer) { clearTimeout(state.pruneTimer); state.pruneTimer = null; }
+    if (state.pruneIdleId && typeof cancelIdleCallback === 'function') {
+      cancelIdleCallback(state.pruneIdleId);
+      state.pruneIdleId = null;
+    }
+    state.pruneQueued = false;
+    state.pruneInFlight = false;
+    state.pruneNeedsRerun = false;
     state.container = null;
   }
 
   function attachObserver(root) {
     if (!root) return;
     if (state.observer) state.observer.disconnect();
-    const obs = new MutationObserver(() => prune(state.keepLast));
+    const obs = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === 'childList' && (r.addedNodes.length || r.removedNodes.length)) {
+          schedulePrune();
+          return;
+        }
+      }
+    });
     obs.observe(root, { childList: true, subtree: true });
     state.observer = obs;
   }
@@ -214,7 +289,7 @@
         state.container = container;
         attachObserver(container);
       }
-      prune(keepLast);
+      schedulePrune();
     }, 500);
 
   }
@@ -339,11 +414,37 @@
     }
   }
 
+
+  function installPreSendLightenHook() {
+    const maybeLighten = () => {
+      if (!state.autoEnabled) return;
+      schedulePrune();
+    };
+
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' || ev.shiftKey || ev.isComposing) return;
+      const el = ev.target;
+      if (!(el instanceof HTMLElement)) return;
+      const inComposer = el.matches('textarea') || el.getAttribute('contenteditable') === 'true';
+      if (!inComposer) return;
+      maybeLighten();
+    }, true);
+
+    document.addEventListener('pointerdown', (ev) => {
+      const el = ev.target;
+      if (!(el instanceof Element)) return;
+      const sendBtn = el.closest('button[data-testid="send-button"], button[aria-label*="Send"], button[aria-label*="Enviar"]');
+      if (!sendBtn) return;
+      maybeLighten();
+    }, true);
+  }
+
   function init() {
     (async () => {
       const settings = await getSettings();
       settings.tuningPreset = normalizePreset(settings.tuningPreset);
       mountUI(settings);
+      installPreSendLightenHook();
       if (settings.auto) setAuto(true, settings.keepLast);
       else logStatus('Pronto. (Use Podar ou ligue Auto)');
     })();

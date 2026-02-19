@@ -101,6 +101,13 @@
     KEEP_TURNS,
   } = TUNING;
   const CONV_URL = '/backend-api/f/conversation';
+  const DEBUG_MODE = (() => {
+    try { return localStorage.getItem('chatpruner:debug') === '1'; } catch { return false; }
+  })();
+  const HEAVY_STATS_INTERVAL_MS = 2000;
+  const MAX_PENDING_HOLD_MS = 420;
+  const MAX_ASSISTANT_DELAY_MS = 900;
+  const logDebug = (...args) => { if (DEBUG_MODE) console.log(...args); };
   let uiBoostUntil = 0;
 
   document.addEventListener('chatpruner:ui-interaction', () => {
@@ -608,7 +615,7 @@
       try { pruneTurns(); } catch { }
     }, 0);
 
-    console.log('[ChatPruner] 🔧 Stream interceptada — Modo Deduplicador Anti-Freeze Ativado!');
+    logDebug('[ChatPruner] 🔧 Stream interceptada — Modo Deduplicador Anti-Freeze Ativado!');
 
     return originalFetch.apply(this, args).then(response => {
       if (!response.ok || !response.body) return response;
@@ -629,6 +636,7 @@
       let rawReadIndex = 0;
       let pendingEvents = [];
       let pendingMetas = [];
+      let pendingSinceAt = 0;
       const pendingIndexesByKey = new Map();
       const pendingAppendIndexesByKey = new Map();
 
@@ -670,10 +678,11 @@
         try { controller.close(); } catch { }
       }
 
-      function publishStats() {
+      let lastHeavyStatsAt = 0;
+      function publishStats(forceHeavy = false) {
         const streamAgeMs = performance.now() - streamOpenedAt;
         const startupSafeActive = streamAgeMs < STARTUP_SAFE_MS;
-        window.__chatPrunerStreamStats = {
+        const baseStats = {
           backlogEvents: rawEvents.length - rawReadIndex,
           pendingEvents: pendingEvents.length,
           waitingRenderCooldown,
@@ -682,20 +691,37 @@
           totalDropped,
           batches: batchCount,
           streamDone,
-          sampleRawEvents,
-          sampleClassified,
           trackedAssistantMsgs: lastForwardedAssistantLenById.size,
           lastContentSeen: !!lastContentCandidateEvent,
           rawEventTotal,
+          adaptiveMaxEventsPerEmit,
+          adaptiveMaxEmitBytes,
+          startupSafeActive,
+          streamAgeMs: Math.round(streamAgeMs),
+        };
+
+        if (!DEBUG_MODE) {
+          window.__chatPrunerStreamStats = baseStats;
+          return;
+        }
+
+        const now = performance.now();
+        const includeHeavy = forceHeavy || (now - lastHeavyStatsAt >= HEAVY_STATS_INTERVAL_MS);
+        if (!includeHeavy) {
+          window.__chatPrunerStreamStats = baseStats;
+          return;
+        }
+
+        lastHeavyStatsAt = now;
+        window.__chatPrunerStreamStats = {
+          ...baseStats,
+          sampleRawEvents,
+          sampleClassified,
           topEventNames: topCounts(rawEventNameCounts, 10),
           topKinds: topCounts(classifiedKindCounts, 10),
           topKeys: topCounts(classifiedKeyCounts, 10),
           topDroppedKeys: topCounts(droppedByKeyCounts, 10),
           topPatchPaths: topCounts(patchPathCounts, 10),
-          adaptiveMaxEventsPerEmit,
-          adaptiveMaxEmitBytes,
-          startupSafeActive,
-          streamAgeMs: Math.round(streamAgeMs),
         };
       }
 
@@ -721,7 +747,7 @@
       function enqueueRawEvent(eventText) {
         if (!eventText) return;
         rawEventTotal++;
-        if (sampleRawEvents.length < 3) {
+        if (DEBUG_MODE && sampleRawEvents.length < 3) {
           sampleRawEvents.push(eventText.slice(0, 320));
         }
         rawEvents.push(eventText);
@@ -785,9 +811,10 @@
         if (!meta) {
           pendingEvents.push(eventText);
           pendingMetas.push(null);
+          if (pendingSinceAt === 0) pendingSinceAt = performance.now();
           return;
         }
-        if (sampleClassified.length < 20) {
+        if (DEBUG_MODE && sampleClassified.length < 20) {
           sampleClassified.push({
             key: meta.key,
             kind: meta.kind,
@@ -801,14 +828,16 @@
           });
         }
 
-        bumpCount(rawEventNameCounts, meta.eventName || '(none)');
-        bumpCount(classifiedKindCounts, meta.kind || '(none)');
-        bumpCount(classifiedKeyCounts, meta.key || '(none)');
-        if (meta.patchPath) {
-          bumpCount(
-            patchPathCounts,
-            `${meta.patchOp || 'op'} ${meta.patchPath}`
-          );
+        if (DEBUG_MODE) {
+          bumpCount(rawEventNameCounts, meta.eventName || '(none)');
+          bumpCount(classifiedKindCounts, meta.kind || '(none)');
+          bumpCount(classifiedKeyCounts, meta.key || '(none)');
+          if (meta.patchPath) {
+            bumpCount(
+              patchPathCounts,
+              `${meta.patchOp || 'op'} ${meta.patchPath}`
+            );
+          }
         }
 
         if (meta.hasContent) {
@@ -819,7 +848,7 @@
         if (!shouldForwardMeta(meta)) {
           droppedInBatch++;
           totalDropped++;
-          bumpCount(droppedByKeyCounts, meta.key || '(none)');
+          if (DEBUG_MODE) bumpCount(droppedByKeyCounts, meta.key || '(none)');
           return;
         }
 
@@ -839,13 +868,14 @@
                 pendingMetas[prevIndex] = merged.meta;
                 droppedInBatch++;
                 totalDropped++;
-                bumpCount(droppedByKeyCounts, meta.key || '(none)');
+                if (DEBUG_MODE) bumpCount(droppedByKeyCounts, meta.key || '(none)');
                 return;
               }
             }
           }
           pendingEvents.push(eventText);
           pendingMetas.push(meta);
+          if (pendingSinceAt === 0) pendingSinceAt = performance.now();
           if (meta.appendMergeKey) {
             pendingAppendIndexesByKey.set(meta.appendMergeKey, pendingEvents.length - 1);
           }
@@ -856,7 +886,7 @@
         if (lastForwardedSig && lastForwardedSig === meta.signature) {
           droppedInBatch++;
           totalDropped++;
-          bumpCount(droppedByKeyCounts, meta.key || '(none)');
+          if (DEBUG_MODE) bumpCount(droppedByKeyCounts, meta.key || '(none)');
           return;
         }
 
@@ -864,6 +894,7 @@
         if (existingIndex === undefined) {
           pendingEvents.push(eventText);
           pendingMetas.push(meta);
+          if (pendingSinceAt === 0) pendingSinceAt = performance.now();
           pendingIndexesByKey.set(meta.key, pendingEvents.length - 1);
           return;
         }
@@ -872,7 +903,7 @@
         pendingMetas[existingIndex] = meta;
         droppedInBatch++;
         totalDropped++;
-        bumpCount(droppedByKeyCounts, meta.key || '(none)');
+        if (DEBUG_MODE) bumpCount(droppedByKeyCounts, meta.key || '(none)');
       }
 
       function shrinkPendingBeforeEmit(force) {
@@ -911,12 +942,21 @@
 
         pendingEvents = nextEvents;
         pendingMetas = nextMetas;
+        if (pendingEvents.length === 0) pendingSinceAt = 0;
       }
 
       function emitPending(force = false) {
-        if (pendingEvents.length === 0) return;
-        if (waitingRenderCooldown) return;
-        if (!force && performance.now() < nextEmitAt) return;
+        if (pendingEvents.length === 0) {
+          pendingSinceAt = 0;
+          return;
+        }
+
+        const now = performance.now();
+        const pendingForMs = pendingSinceAt > 0 ? now - pendingSinceAt : 0;
+        const forceByLatency = !force && pendingForMs >= MAX_PENDING_HOLD_MS;
+
+        if (waitingRenderCooldown && !forceByLatency) return;
+        if (!force && !forceByLatency && now < nextEmitAt) return;
 
         if (!force) {
           const assistantMetas = [];
@@ -950,9 +990,13 @@
             }
 
             if (shouldDelay) {
-              scheduleProcess(minWait);
-              publishStats();
-              return;
+              if (pendingForMs >= MAX_ASSISTANT_DELAY_MS) {
+                shouldDelay = false;
+              } else {
+                scheduleProcess(Math.min(minWait, MAX_ASSISTANT_DELAY_MS));
+                publishStats();
+                return;
+              }
             }
           }
         }
@@ -991,6 +1035,7 @@
         const mergedText = emittedEvents.join('\n\n') + '\n\n';
         pendingEvents = pendingEvents.slice(emitCount);
         pendingMetas = pendingMetas.slice(emitCount);
+        if (pendingEvents.length === 0) pendingSinceAt = 0;
         rebuildPendingIndexes();
         batchCount++;
         waitingRenderCooldown = true;
@@ -1040,7 +1085,7 @@
           waitingRenderCooldown = false;
 
           if (droppedInBatch > 0 || safeCost > 150 || batchCount % 15 === 0) {
-            console.log(`[ChatPruner] 📤 Lote #${batchCount}: events=${emittedEvents.length} | dedupe=${droppedInBatch} | render=${Math.round(safeCost)}ms | cooldown=${Math.round(lastCooldownMs)}ms | cap=${adaptiveMaxEventsPerEmit}/${adaptiveMaxEmitBytes} | totalSalvo=${totalDropped}`);
+            logDebug(`[ChatPruner] 📤 Lote #${batchCount}: events=${emittedEvents.length} | dedupe=${droppedInBatch} | render=${Math.round(safeCost)}ms | cooldown=${Math.round(lastCooldownMs)}ms | cap=${adaptiveMaxEventsPerEmit}/${adaptiveMaxEmitBytes} | totalSalvo=${totalDropped}`);
           }
           droppedInBatch = 0;
 
@@ -1130,10 +1175,11 @@
               try {
                 controller.enqueue(encoder.encode(lastContentCandidateEvent + '\n\n'));
                 lastForwardedContentSignature = lastContentCandidateSignature;
-                console.log('[ChatPruner] 🧷 Failsafe: último snapshot de conteúdo reenviado antes de fechar stream');
+                logDebug('[ChatPruner] 🧷 Failsafe: último snapshot de conteúdo reenviado antes de fechar stream');
               } catch { }
             }
             closeStream();
+            publishStats(true);
             const rootSnapshot = {
               rawEventTotal,
               topEventNames: topCounts(rawEventNameCounts, 8),
@@ -1143,8 +1189,8 @@
               topPatchPaths: topCounts(patchPathCounts, 8),
             };
             window.__chatPrunerRootSnapshot = rootSnapshot;
-            console.log('[ChatPruner] 🧬 Root snapshot:', rootSnapshot);
-            console.log(`[ChatPruner] ✅ Stream completa — Total de renders evitados: ${totalDropped}`);
+            logDebug('[ChatPruner] 🧬 Root snapshot:', rootSnapshot);
+            logDebug(`[ChatPruner] ✅ Stream completa — Total de renders evitados: ${totalDropped}`);
           }
           return;
         }
@@ -1232,6 +1278,6 @@
     return originalXhrSend.call(this, data);
   };
 
-  console.log('[ChatPruner] ✅ SSE Deduplicator ativo — drena rede independente do React');
-  console.log('[ChatPruner] ⚙️  Preset: ' + ACTIVE_TUNING + ' | Flush: ' + FLUSH_INTERVAL + 'ms | Budget: ' + PROCESS_BUDGET_MS + 'ms | Prune: manter ' + KEEP_TURNS + ' turns');
+  console.log('[ChatPruner] ✅ SSE Deduplicator ativo — anti-freeze habilitado');
+  logDebug('[ChatPruner] ⚙️  Preset: ' + ACTIVE_TUNING + ' | Flush: ' + FLUSH_INTERVAL + 'ms | Budget: ' + PROCESS_BUDGET_MS + 'ms | Prune: manter ' + KEEP_TURNS + ' turns');
 })();
