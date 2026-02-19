@@ -1,0 +1,100 @@
+[
+    {
+        "id": 1,
+        "priority": 1,
+        "action": {
+            "type": "block"
+        },
+        "condition": {
+            "urlFilter": "*/ces/v1/t",
+            "resourceTypes": [
+                "xmlhttprequest",
+                "other"
+            ]
+        }
+    },
+    {
+        "id": 2,
+        "priority": 1,
+        "action": {
+            "type": "block"
+        },
+        "condition": {
+            "urlFilter": "*/ces/v1/m",
+            "resourceTypes": [
+                "xmlhttprequest",
+                "other"
+            ]
+        }
+    },
+    {
+        "id": 3,
+        "priority": 1,
+        "action": {
+            "type": "block"
+        },
+        "condition": {
+            "urlFilter": "*/ces/statsc/*",
+            "resourceTypes": [
+                "xmlhttprequest",
+                "other"
+            ]
+        }
+    },
+    {
+        "id": 4,
+        "priority": 1,
+        "action": {
+            "type": "block"
+        },
+        "condition": {
+            "urlFilter": "*/ces/v1/telemetry/*",
+            "resourceTypes": [
+                "xmlhttprequest",
+                "other"
+            ]
+        }
+    },
+    {
+        "id": 5,
+        "priority": 1,
+        "action": {
+            "type": "block"
+        },
+        "condition": {
+            "urlFilter": "*/backend-api/lat/*",
+            "resourceTypes": [
+                "xmlhttprequest",
+                "other"
+            ]
+        }
+    },
+    {
+        "id": 6,
+        "priority": 1,
+        "action": {
+            "type": "block"
+        },
+        "condition": {
+            "urlFilter": "*/backend-api/sentinel/ping",
+            "resourceTypes": [
+                "xmlhttprequest",
+                "other"
+            ]
+        }
+    },
+    {
+        "id": 7,
+        "priority": 1,
+        "action": {
+            "type": "block"
+        },
+        "condition": {
+            "urlFilter": "*ab.chatgpt.com/v1/rgstr*",
+            "resourceTypes": [
+                "xmlhttprequest",
+                "other"
+            ]
+        }
+    }
+]
