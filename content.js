@@ -75,9 +75,9 @@
   }
 
   function presetHint(preset) {
-    if (preset === 'stable') return 'Mais estável, menos “ao vivo”.';
-    if (preset === 'snappy') return 'Mais fluido, com risco de micro-jank.';
-    return 'Meio-termo entre estabilidade e fluidez.';
+    if (preset === 'stable') return 'Most stable, less “live” feel.';
+    if (preset === 'snappy') return 'Snappier, with more micro-jank risk.';
+    return 'Balance between stability and responsiveness.';
   }
 
   function applyPagePreset(presetValue) {
@@ -132,12 +132,12 @@
 
   function ensurePlaceholder(parent, removedCount, keepLast) {
     if (state.placeholderEl && state.placeholderEl.isConnected) {
-      state.placeholderEl.textContent = `🗿 ${removedCount} mensagens antigas removidas (visíveis: ${keepLast})`;
+      state.placeholderEl.textContent = `🗿 ${removedCount} older messages removed (visible: ${keepLast})`;
       return state.placeholderEl;
     }
     const ph = document.createElement('div');
     ph.className = 'chatprune-placeholder';
-    ph.textContent = `🗿 ${removedCount} mensagens antigas removidas (visíveis: ${keepLast})`;
+    ph.textContent = `🗿 ${removedCount} older messages removed (visible: ${keepLast})`;
     parent.insertBefore(ph, parent.firstChild);
     state.placeholderEl = ph;
     return ph;
@@ -183,7 +183,7 @@
 
     const turns = findTurnsGlobal();
     if (!turns.length) {
-      logStatus('Auto: aguardando o chat montar...');
+      logStatus('Auto: waiting for chat to load...');
       return;
     }
 
@@ -192,8 +192,8 @@
 
     if (turns.length <= keepLast) {
       const ghosts = cleanupGhostTurns(false);
-      if (ghosts) logStatus(`Auto: armado. Mensagens: ${turns.length} (limite: ${keepLast}). Limpou ${ghosts} fantasmas.`);
-      else logStatus(`Auto: armado. Mensagens: ${turns.length} (limite: ${keepLast}).`);
+      if (ghosts) logStatus(`Auto: on. Messages: ${turns.length} (limit: ${keepLast}). Cleared ${ghosts} ghosts.`);
+      else logStatus(`Auto: on. Messages: ${turns.length} (limit: ${keepLast}).`);
       return;
     }
 
@@ -228,7 +228,7 @@
 
       state.pruneInFlight = false;
       const ghosts = cleanupGhostTurns(true);
-      logStatus(`Podado: removi ${total} turns. Limpou ${ghosts} fantasmas. Mantive ${keepLast}.`);
+      logStatus(`Pruned ${total} turns. Cleared ${ghosts} ghosts. Kept ${keepLast}.`);
 
       if (state.pruneNeedsRerun) {
         state.pruneNeedsRerun = false;
@@ -295,11 +295,11 @@
     disconnectObservers();
 
     if (!enabled) {
-      logStatus('Auto: desligado.');
+      logStatus('Auto: off.');
       return;
     }
 
-    logStatus('Auto: aguardando o chat montar...');
+    logStatus('Auto: waiting for chat to load...');
 
     state.retryTimer = setInterval(() => {
       if (!state.autoEnabled) return;
@@ -333,7 +333,7 @@
     const min = document.createElement('div');
     min.id = 'chatprune-min';
     min.textContent = '🗿';
-    min.title = 'Abrir Chat Pruner';
+    min.title = 'Open Chat Pruner';
 
     const box = document.createElement('div');
     box.id = 'chatprune-box';
@@ -341,11 +341,11 @@
     box.innerHTML = `
       <h4>Chat Pruner</h4>
       <div id="chatprune-meta">
-        <div>Manter</div>
+        <div>Keep</div>
         <input id="chatprune-keep" type="number" min="5" max="200" step="1" />
       </div>
       <div id="chatprune-preset-row">
-        <div>Modo</div>
+        <div>Preset</div>
         <select id="chatprune-preset">
           <option value="stable">Stable</option>
           <option value="balanced">Balanced</option>
@@ -354,17 +354,17 @@
       </div>
       <div id="chatprune-preset-hint"></div>
       <div id="chatprune-row">
-        <button class="chatprune-btn" id="chatprune-prune">Podar</button>
-        <button class="chatprune-btn" id="chatprune-clean">Limpar Fantasmas</button>
+        <button class="chatprune-btn" id="chatprune-prune">Prune</button>
+        <button class="chatprune-btn" id="chatprune-clean">Clear Ghosts</button>
       </div>
       <div id="chatprune-toggle">
         <input type="checkbox" id="chatprune-auto" />
-        <label for="chatprune-auto">Auto (poda sozinho)</label>
+        <label for="chatprune-auto">Auto (prune on its own)</label>
       </div>
-      <div id="chatprune-status">Pronto.</div>
+      <div id="chatprune-status">Ready.</div>
       <div id="chatprune-footer">
-        <span class="chatprune-link" id="chatprune-minimize">Minimizar</span>
-        <span class="chatprune-link" id="chatprune-reload">Recarregar</span>
+        <span class="chatprune-link" id="chatprune-minimize">Minimize</span>
+        <span class="chatprune-link" id="chatprune-reload">Reload</span>
       </div>
     `;
 
@@ -405,7 +405,7 @@
 
     document.getElementById('chatprune-clean').addEventListener('click', () => {
       const removed = cleanupGhostTurns();
-      logStatus(`Limpou ${removed} fantasmas (turns vazios).`);
+      logStatus(`Cleared ${removed} ghosts (empty turns).`);
     });
 
     autoCk.addEventListener('change', async () => {
@@ -421,7 +421,7 @@
       presetSel.value = preset;
       presetHintEl.textContent = presetHint(preset);
       await setSettings({ tuningPreset: preset });
-      logStatus(`Modo ${preset} salvo. Clique em Recarregar para aplicar.`);
+      logStatus(`Preset ${preset} saved. Click Reload to apply.`);
     });
 
     document.getElementById('chatprune-minimize').addEventListener('click', async () => {
@@ -476,7 +476,7 @@
       mountUI(settings);
       installPreSendLightenHook();
       if (settings.auto) setAuto(true, settings.keepLast);
-      else logStatus('Pronto. (Use Podar ou ligue Auto)');
+      else logStatus('Ready. (Use Prune or enable Auto)');
     })();
   }
 

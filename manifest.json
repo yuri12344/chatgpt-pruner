@@ -1,8 +1,8 @@
 {
   "name": "Chat Pruner (ChatGPT)",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "manifest_version": 3,
-  "description": "Poda conversas do ChatGPT e bloqueia telemetria para evitar travamentos.",
+  "description": "Prune ChatGPT threads and block telemetry to reduce UI freezes.",
   "permissions": [
     "storage",
     "declarativeNetRequest"

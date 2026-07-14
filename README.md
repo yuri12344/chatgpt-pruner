@@ -31,7 +31,7 @@ ChatGPT can freeze on long threads because React reconciles huge SSE delta burst
 - caps events and bytes per emit
 - applies adaptive cooldown after expensive renders
 
-Presets in the panel: **Stable**, **Balanced** (default), **Snappy**. Click **Recarregar** after changing preset.
+Presets in the panel: **Stable**, **Balanced** (default), **Snappy**. Click **Reload** after changing preset.
 
 ### Optional profiler (`profiler.js`)
 
@@ -47,12 +47,12 @@ Then inspect `window.__chatPrunerProfile` and `window.__chatPrunerStreamStats` d
 
 | Control | Action |
 |--------|--------|
-| **Manter** | How many recent turns to keep (5–200) |
-| **Podar** | Prune now |
-| **Limpar Fantasmas** | Remove empty turn / wrapper nodes |
+| **Keep** | How many recent turns to keep (5–200) |
+| **Prune** | Prune now |
+| **Clear Ghosts** | Remove empty turn / wrapper nodes |
 | **Auto** | Prune automatically on new messages |
-| **Modo** | Stream tuning preset |
-| **Recarregar** | Reload page to apply preset |
+| **Preset** | Stream tuning preset |
+| **Reload** | Reload page to apply preset |
 
 ## Privacy
 

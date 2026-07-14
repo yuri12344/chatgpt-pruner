@@ -578,7 +578,7 @@
     return false;
   }
 
-  // ─── Limpa mensagens antigas para aliviar a RAM ───
+  // ─── Prune old messages to reduce RAM use ───
   function pruneTurns() {
     let turns = Array.from(document.querySelectorAll('article[data-testid^="conversation-turn"]'));
     if (!turns.length) turns = Array.from(document.querySelectorAll('[data-testid^="conversation-turn"]'));
@@ -595,10 +595,10 @@
       parent.insertBefore(placeholder, parent.firstChild);
     }
     for (const node of toRemove) node.remove();
-    if (placeholder) placeholder.textContent = `🗿 ${toRemove.length} mensagens antigas ocultadas (mantendo ${KEEP_TURNS})`;
+    if (placeholder) placeholder.textContent = `🗿 ${toRemove.length} older messages hidden (keeping ${KEEP_TURNS})`;
   }
 
-  // ─── Interceptador com Deduplicação ───
+  // ─── Interceptor with deduplication ───
   const originalFetch = window.fetch;
 
   window.fetch = function (...args) {
@@ -615,7 +615,7 @@
       try { pruneTurns(); } catch { }
     }, 0);
 
-    logDebug('[ChatPruner] 🔧 Stream interceptada — Modo Deduplicador Anti-Freeze Ativado!');
+    logDebug('[ChatPruner] 🔧 Stream intercepted — anti-freeze deduplicator enabled');
 
     return originalFetch.apply(this, args).then(response => {
       if (!response.ok || !response.body) return response;
@@ -1085,7 +1085,7 @@
           waitingRenderCooldown = false;
 
           if (droppedInBatch > 0 || safeCost > 150 || batchCount % 15 === 0) {
-            logDebug(`[ChatPruner] 📤 Lote #${batchCount}: events=${emittedEvents.length} | dedupe=${droppedInBatch} | render=${Math.round(safeCost)}ms | cooldown=${Math.round(lastCooldownMs)}ms | cap=${adaptiveMaxEventsPerEmit}/${adaptiveMaxEmitBytes} | totalSalvo=${totalDropped}`);
+            logDebug(`[ChatPruner] 📤 Batch #${batchCount}: events=${emittedEvents.length} | dedupe=${droppedInBatch} | render=${Math.round(safeCost)}ms | cooldown=${Math.round(lastCooldownMs)}ms | cap=${adaptiveMaxEventsPerEmit}/${adaptiveMaxEmitBytes} | totalSaved=${totalDropped}`);
           }
           droppedInBatch = 0;
 
@@ -1175,7 +1175,7 @@
               try {
                 controller.enqueue(encoder.encode(lastContentCandidateEvent + '\n\n'));
                 lastForwardedContentSignature = lastContentCandidateSignature;
-                logDebug('[ChatPruner] 🧷 Failsafe: último snapshot de conteúdo reenviado antes de fechar stream');
+                logDebug('[ChatPruner] 🧷 Failsafe: resent last content snapshot before closing stream');
               } catch { }
             }
             closeStream();
@@ -1190,7 +1190,7 @@
             };
             window.__chatPrunerRootSnapshot = rootSnapshot;
             logDebug('[ChatPruner] 🧬 Root snapshot:', rootSnapshot);
-            logDebug(`[ChatPruner] ✅ Stream completa — Total de renders evitados: ${totalDropped}`);
+            logDebug(`[ChatPruner] ✅ Stream complete — renders skipped: ${totalDropped}`);
           }
           return;
         }
@@ -1256,7 +1256,7 @@
     });
   };
 
-  // ─── Bloqueadores de telemetria da OpenAI ───
+  // ─── OpenAI telemetry blockers ───
   const originalSendBeacon = navigator.sendBeacon.bind(navigator);
   navigator.sendBeacon = function (url, data) {
     if (shouldBlock(url)) return true;
@@ -1278,6 +1278,6 @@
     return originalXhrSend.call(this, data);
   };
 
-  console.log('[ChatPruner] ✅ SSE Deduplicator ativo — anti-freeze habilitado');
-  logDebug('[ChatPruner] ⚙️  Preset: ' + ACTIVE_TUNING + ' | Flush: ' + FLUSH_INTERVAL + 'ms | Budget: ' + PROCESS_BUDGET_MS + 'ms | Prune: manter ' + KEEP_TURNS + ' turns');
+  console.log('[ChatPruner] ✅ SSE deduplicator active — anti-freeze enabled');
+  logDebug('[ChatPruner] ⚙️  Preset: ' + ACTIVE_TUNING + ' | Flush: ' + FLUSH_INTERVAL + 'ms | Budget: ' + PROCESS_BUDGET_MS + 'ms | Prune: keep ' + KEEP_TURNS + ' turns');
 })();
