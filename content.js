@@ -86,14 +86,22 @@
     return preset;
   }
 
+  const TURN_NODE_SEL = 'article[data-testid^="conversation-turn-"], section[data-testid^="conversation-turn-"]';
+
+  function turnRoot(node) {
+    const parent = node?.parentElement;
+    if (parent && parent.hasAttribute('data-turn-id-container')) return parent;
+    return node;
+  }
+
   function findTurnsGlobal() {
-    let turns = qsa('article[data-testid^="conversation-turn"]');
+    let turns = qsa(TURN_NODE_SEL);
     if (turns.length) return turns;
 
-    turns = qsa('[data-testid^="conversation-turn"]');
+    turns = qsa('[data-testid^="conversation-turn-"]');
     if (turns.length) return turns;
 
-    turns = qsa('article[data-turn]');
+    turns = qsa('article[data-turn], section[data-turn]');
     if (turns.length) return turns;
 
     // Worst-case: derive from markdown
@@ -102,9 +110,13 @@
     const out = [];
     for (const m of mds) {
       let cur = m;
-      for (let i = 0; i < 10 && cur; i++) {
-        if (cur.tagName && cur.tagName.toLowerCase() === 'article') {
-          if (!set.has(cur)) { set.add(cur); out.push(cur); }
+      for (let i = 0; i < 12 && cur; i++) {
+        const tag = (cur.tagName || '').toLowerCase();
+        if (tag === 'article' || tag === 'section') {
+          const tid = cur.getAttribute('data-testid') || '';
+          if (tid.startsWith('conversation-turn-') || cur.hasAttribute('data-turn')) {
+            if (!set.has(cur)) { set.add(cur); out.push(cur); }
+          }
           break;
         }
         cur = cur.parentElement;
@@ -115,7 +127,7 @@
 
   function findContainerFromTurns(turns) {
     if (!turns.length) return null;
-    return turns[0].parentElement || null;
+    return turnRoot(turns[0]).parentElement || null;
   }
 
   function ensurePlaceholder(parent, removedCount, keepLast) {
@@ -131,19 +143,29 @@
     return ph;
   }
 
-  // Remove empty shells (only icons, no markdown/text)
+  // Remove empty shells (only icons, no markdown/text) and orphan project wrappers.
   function cleanupGhostTurns(force = false) {
     const now = Date.now();
     if (!force && now - state.lastGhostCleanupAt < GHOST_CLEANUP_EVERY_MS) return 0;
     state.lastGhostCleanupAt = now;
 
-    const turns = qsa('article[data-testid^="conversation-turn"]');
     let removed = 0;
+    const turns = qsa(TURN_NODE_SEL);
     for (const t of turns) {
       const hasMarkdown = !!qs('div.markdown.prose', t);
       const text = (t.textContent || '').trim();
       if (!hasMarkdown && text.length === 0) {
-        t.remove();
+        turnRoot(t).remove();
+        removed++;
+      }
+    }
+
+    // ponytail: project chats wrap each turn in div[data-turn-id-container]; pruning only the
+    // inner section left empty wrappers (upgrade path: none, just remove the shell).
+    for (const w of qsa('div[data-turn-id-container]')) {
+      if (qs(TURN_NODE_SEL, w)) continue;
+      if ((w.textContent || '').trim().length === 0) {
+        w.remove();
         removed++;
       }
     }
@@ -175,8 +197,16 @@
       return;
     }
 
-    const toRemove = turns.slice(0, turns.length - keepLast);
-    const parent = toRemove[0].parentElement || container || document.body;
+    const seen = new Set();
+    const toRemove = [];
+    for (const turn of turns.slice(0, turns.length - keepLast)) {
+      const root = turnRoot(turn);
+      if (!seen.has(root)) {
+        seen.add(root);
+        toRemove.push(root);
+      }
+    }
+    const parent = toRemove[0]?.parentElement || container || document.body;
 
     ensurePlaceholder(parent, toRemove.length, keepLast);
     state.pruneInFlight = true;
