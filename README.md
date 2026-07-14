@@ -1,79 +1,85 @@
-# Chat Pruner
+# ChatGPT Pruner
 
-Extensao para reduzir travamentos durante stream de respostas no ChatGPT, com poda de historico e controle de lote/cooldown no pipeline SSE.
+Chrome extension that keeps long ChatGPT threads usable: prunes old messages from the DOM, throttles SSE stream rendering, and blocks noisy telemetry that can add jank.
 
-## Diagnostico da travadeira (causa raiz)
+Works on regular chats and **ChatGPT Projects** (`/g/g-p-.../c/...`).
 
-O problema principal era bloqueio da main thread por commits grandes do React durante o stream.
+## Install (developer mode)
 
-Em resumo:
+1. Clone this repo.
+2. Open `chrome://extensions`.
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and select the repo folder.
+5. Open [chatgpt.com](https://chatgpt.com) and use the floating **Chat Pruner** panel.
 
-- O stream SSE chegava em bursts de `event: delta`.
-- O pipeline acumulava eventos demais e empurrava lotes grandes para a UI.
-- Parte dos deltas era opaca (ex.: `delta:op:root`), causando dedupe inconsistente.
-- Markdown/codigo parcial no meio do stream aumentava custo de parse/highlight.
-- Quando ocorria freeze, o proximo flush podia disparar quase em seguida e repetir o ciclo.
+No build step. No API keys. No account with this project.
 
-## Por que podar mensagens nao basta
+## What it does
 
-Mesmo removendo mensagens antigas do DOM, a travadeira pode continuar em chats grandes.
+### Message pruning (`content.js`)
 
-Motivos:
+- Keeps the last N conversation turns (default: 20).
+- **Auto** mode prunes as the thread grows.
+- **Ghost cleanup** removes empty turn shells.
+- Project chats wrap each turn in `div[data-turn-id-container]`; the pruner removes the whole wrapper, not just the inner `<section>`.
 
-- Poda visual reduz peso de tela, mas nao elimina custo do estado interno que continua sendo atualizado por `delta`.
-- O problema principal vira frequencia de atualizacao na main thread, nao apenas quantidade de mensagens visiveis.
-- `Markdown` e blocos de codigo durante stream seguem caros para parse/highlight/layout.
-- Se o stream chega mais rapido do que a UI consegue reconciliar, forma backlog e gera bursts com long tasks.
+### Stream smoothing (`debounce.js`)
 
-## Evidencias observadas nos logs
+ChatGPT can freeze on long threads because React reconciles huge SSE delta bursts on the main thread. This script patches `fetch` for `/backend-api/f/conversation` and:
 
-- Lotes muito grandes (ex.: `events=172` e `events=741`).
-- Render cost extremo em alguns flushes (ex.: ~13s e ~59s).
-- Long tasks acumuladas em dezenas de segundos no pior caso.
-- FPS baixo e multiplos `UI FREEZE` durante uma mesma resposta.
+- batches / dedupes stream deltas
+- caps events and bytes per emit
+- applies adaptive cooldown after expensive renders
 
-## Mitigacoes implementadas
+Presets in the panel: **Stable**, **Balanced** (default), **Snappy**. Click **Recarregar** after changing preset.
 
-- Limite por lote de eventos (`MAX_EVENTS_PER_EMIT`).
-- Limite por tamanho aproximado de payload (`MAX_EMIT_BYTES`).
-- Cooldown adaptativo baseado em custo de render.
-- Penalidade extra de congestionamento quando render vem caro.
-- Modo de seguranca no inicio da stream (`startup safe mode`).
-- Merge de appends adjacentes de texto para reduzir churn de render.
-- Classificacao/filtragem de `delta` mais robusta.
-- Dedupe estrutural de `delta` por patch (`op/path/msgId`) em vez de tratar todo `delta` como order-sensitive.
-- Telemetria de diagnostico via:
-  - `window.__chatPrunerStreamStats`
-  - `window.__chatPrunerRootSnapshot`
+### Optional profiler (`profiler.js`)
 
-## Solucao atomica (abordagem definitiva)
+Off by default. Enable in DevTools console:
 
-Para resolver de forma estrutural, o pipeline precisa tratar stream como estado e nao como render por evento:
+```js
+chrome.storage.local.set({ enableProfiler: true }, () => location.reload());
+```
 
-- Coalescer deltas e renderizar em cadencia fixa baixa (ex.: 2-4 commits por segundo).
-- Aplicar budget rigido por flush (tempo e bytes).
-- Priorizar apenas eventos de conteudo do assistant e eventos terminais.
-- Ignorar patches de ruido (`root noise`) sem impacto no texto final.
-- Garantir flush final obrigatorio ao terminar a stream.
+Then inspect `window.__chatPrunerProfile` and `window.__chatPrunerStreamStats` during a stream.
 
-Trade-off:
+## Panel controls
 
-- Menos efeito de "digitando em tempo real".
-- Muito menos freeze/jank na thread principal.
+| Control | Action |
+|--------|--------|
+| **Manter** | How many recent turns to keep (5–200) |
+| **Podar** | Prune now |
+| **Limpar Fantasmas** | Remove empty turn / wrapper nodes |
+| **Auto** | Prune automatically on new messages |
+| **Modo** | Stream tuning preset |
+| **Recarregar** | Reload page to apply preset |
 
-## Presets de uso
+## Privacy
 
-O motor suporta tres modos:
+- Runs only on `chatgpt.com` / `chat.openai.com`.
+- Settings stay in `chrome.storage.local` on your machine.
+- Blocks some ChatGPT telemetry endpoints via `declarativeNetRequest` (see `rules.json`).
+- Does **not** send your chats anywhere. Pruning is local DOM removal only.
 
-- `stable`: maximo foco em estabilidade, menos "tempo real".
-- `balanced`: meio termo (padrao).
-- `snappy`: mais fluido/rapido, com maior risco de micro-jank.
+## Project layout
 
-No painel visual do Chat Pruner, selecione o modo e clique em `Recarregar` para aplicar.
+| File | Role |
+|------|------|
+| `manifest.json` | Extension manifest (MV3) |
+| `content.js` | UI panel, pruning, script injection |
+| `debounce.js` | SSE intercept, batching, presets |
+| `profiler.js` | Optional stream / long-task profiler |
+| `rules.json` | Telemetry block rules |
+| `styles.css` | Panel styles |
+| `fixtures/project-turn-snippet.html` | Synthetic DOM fixture for selector checks |
+| `test-turn-selectors.mjs` | Quick fixture self-check (`node test-turn-selectors.mjs`) |
 
-## Arquivos principais
+## Trade-offs
 
-- `debounce.js`: interceptacao SSE, dedupe, batching, cooldown adaptativo e presets.
-- `content.js`: injecao de scripts, painel visual e persistencia de configuracao.
-- `profiler.js`: monitoramento de long tasks/frame gaps e relatorios de stream.
-- `styles.css`: estilo do painel.
+- Pruning is **visual only** — OpenAI may still hold full history server-side.
+- Stream throttling trades some “live typing” smoothness for fewer UI freezes.
+- ChatGPT’s DOM changes over time; selectors may need updates after UI deploys.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
