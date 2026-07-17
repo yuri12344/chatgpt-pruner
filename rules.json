@@ -2,99 +2,118 @@
     {
         "id": 1,
         "priority": 1,
-        "action": {
-            "type": "block"
-        },
+        "action": { "type": "block" },
         "condition": {
             "urlFilter": "*/ces/v1/t",
-            "resourceTypes": [
-                "xmlhttprequest",
-                "other"
-            ]
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
     {
         "id": 2,
         "priority": 1,
-        "action": {
-            "type": "block"
-        },
+        "action": { "type": "block" },
         "condition": {
             "urlFilter": "*/ces/v1/m",
-            "resourceTypes": [
-                "xmlhttprequest",
-                "other"
-            ]
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
     {
         "id": 3,
         "priority": 1,
-        "action": {
-            "type": "block"
-        },
+        "action": { "type": "block" },
         "condition": {
             "urlFilter": "*/ces/statsc/*",
-            "resourceTypes": [
-                "xmlhttprequest",
-                "other"
-            ]
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
     {
         "id": 4,
         "priority": 1,
-        "action": {
-            "type": "block"
-        },
+        "action": { "type": "block" },
         "condition": {
             "urlFilter": "*/ces/v1/telemetry/*",
-            "resourceTypes": [
-                "xmlhttprequest",
-                "other"
-            ]
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
     {
         "id": 5,
         "priority": 1,
-        "action": {
-            "type": "block"
-        },
+        "action": { "type": "block" },
         "condition": {
             "urlFilter": "*/backend-api/lat/*",
-            "resourceTypes": [
-                "xmlhttprequest",
-                "other"
-            ]
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
     {
         "id": 6,
         "priority": 1,
-        "action": {
-            "type": "block"
-        },
+        "action": { "type": "block" },
         "condition": {
             "urlFilter": "*/backend-api/sentinel/ping",
-            "resourceTypes": [
-                "xmlhttprequest",
-                "other"
-            ]
+            "resourceTypes": ["xmlhttprequest", "other"]
         }
     },
     {
         "id": 7,
         "priority": 1,
-        "action": {
-            "type": "block"
-        },
+        "action": { "type": "block" },
         "condition": {
             "urlFilter": "*ab.chatgpt.com/v1/rgstr*",
-            "resourceTypes": [
-                "xmlhttprequest",
-                "other"
-            ]
+            "resourceTypes": ["xmlhttprequest", "other"]
+        }
+    },
+    {
+        "id": 8,
+        "priority": 2,
+        "action": { "type": "block" },
+        "condition": {
+            "urlFilter": "*/ces/v1/rgstr*",
+            "resourceTypes": ["xmlhttprequest", "other"]
+        }
+    },
+    {
+        "id": 9,
+        "priority": 2,
+        "action": { "type": "block" },
+        "condition": {
+            "urlFilter": "*/backend-api/sentinel/heartbeat",
+            "resourceTypes": ["xmlhttprequest", "other"]
+        }
+    },
+    {
+        "id": 10,
+        "priority": 2,
+        "action": { "type": "block" },
+        "condition": {
+            "urlFilter": "*/telemetry/intake*",
+            "resourceTypes": ["xmlhttprequest", "other", "ping"]
+        }
+    },
+    {
+        "id": 11,
+        "priority": 2,
+        "action": { "type": "block" },
+        "condition": {
+            "urlFilter": "||events.statsigapi.net^",
+            "resourceTypes": ["xmlhttprequest", "other", "script", "ping", "image"]
+        }
+    },
+    {
+        "id": 12,
+        "priority": 2,
+        "action": { "type": "block" },
+        "condition": {
+            "urlFilter": "||api.oaistatsig.com^",
+            "resourceTypes": ["xmlhttprequest", "other", "script", "ping"]
+        }
+    },
+    {
+        "id": 13,
+        "priority": 2,
+        "action": { "type": "block" },
+        "condition": {
+            "urlFilter": "||featuregates.org^",
+            "resourceTypes": ["xmlhttprequest", "other", "script", "ping"]
         }
     }
 ]

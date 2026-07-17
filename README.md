@@ -23,6 +23,40 @@ No build step. No API keys. No account with this project.
 - **Ghost cleanup** removes empty turn shells.
 - Project chats wrap each turn in `div[data-turn-id-container]`; the pruner removes the whole wrapper, not just the inner `<section>`.
 
+### Network guard (`net-guard.js`) — v1.6
+
+Blocks or softens ChatGPT-side traffic that freezes long MCP sessions:
+
+| Target | Action |
+|--------|--------|
+| `connectors/list_accessible` (large catalog) | cache pass-through 2 min — real first fetch, then local replay |
+| `connectors/links/list_accessible` | same cache — **no** empty stub |
+| `ces/v1/rgstr`, sentinel heartbeat | block |
+| `widget_state` | throttle to 1× / 12s |
+| `sprites-core-*.svg` | cache + inflight dedupe **only for `fetch`/XHR** (parser/DOM loads bypass) |
+| sidebar `conversations` + `gizmos/.../conversations` | in-flight dedupe + 60s cache (only bodies with `items[]`) |
+| `call_mcp` + `runtime mismatch` | circuit breaker — first fatal 400 trips, then stubbed locally |
+
+**v1.9.1:** Cookie `split` memoization (cuts repeated `getCookies`), DNR for `api.oaistatsig.com` + `featuregates.org`, default Keep 10.
+
+**v1.9.0:** RunTask relief — always-on `content-visibility: auto` on turns, MAIN-world scroll/wheel coalesce (`scroll-patch.js`), DNR for `*/telemetry/intake` + `events.statsigapi.net`.
+
+**v1.6.8:** Stop deduping `/backend-api/conversation/{id}` — parallel loads of a single chat shared one in-flight response → Content failed to load.
+
+**v1.6.7:** Sidebar history — in-flight dedupe + 60s cache for `conversations` / `gizmos/.../conversations` (only when response has `items[]`).
+
+**v1.6.6:** Stop blocking `conversations?hide_snorlax=true` — stub `{}` broke `conversationHistory` (`n.items is not iterable` → Content failed to load).
+
+**v1.6.4:** Connector cache replaces empty stubs (fixes plugins showing offline with pruner on).
+
+Inspect counters: `window.__chatPrunerNetGuardStats` in DevTools.
+
+Sprites loaded by the HTML parser (`<img>`, `<link>`, resource type `other`) are **not** intercepted — only duplicate `fetch` calls are coalesced.
+
+### Docker / ERR_NETWORK_CHANGED
+
+Containers with `restart: unless-stopped` in a crash loop (e.g. `continental-api` with wrong DB host) create/destroy `veth` interfaces every few seconds. Chromium reports `net::ERR_NETWORK_CHANGED` and aborts ChatGPT API calls. **Stop the broken container** before long ChatGPT sessions — extension cannot fix host network churn.
+
 ### Stream smoothing (`debounce.js`)
 
 ChatGPT can freeze on long threads because React reconciles huge SSE delta bursts on the main thread. This script patches `fetch` for `/backend-api/f/conversation` and:
@@ -67,12 +101,15 @@ Then inspect `window.__chatPrunerProfile` and `window.__chatPrunerStreamStats` d
 |------|------|
 | `manifest.json` | Extension manifest (MV3) |
 | `content.js` | UI panel, pruning, script injection |
+| `net-guard.js` | Block/stub/dedupe noisy ChatGPT API calls |
 | `debounce.js` | SSE intercept, batching, presets |
 | `profiler.js` | Optional stream / long-task profiler |
+| `scroll-patch.js` | MAIN-world passive + rAF coalesce for scroll/wheel |
 | `rules.json` | Telemetry block rules |
 | `styles.css` | Panel styles |
 | `fixtures/project-turn-snippet.html` | Synthetic DOM fixture for selector checks |
-| `test-turn-selectors.mjs` | Quick fixture self-check (`node test-turn-selectors.mjs`) |
+| `test-net-guard.mjs` | Dedupe clone + MCP circuit pattern checks |
+| `test-turn-selectors.mjs` | Project chat DOM fixture self-check |
 
 ## Trade-offs
 

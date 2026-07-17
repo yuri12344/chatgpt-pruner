@@ -96,7 +96,8 @@
   line-height: 1.25
 }
 
-#chatprune-toggle {
+#chatprune-toggle,
+.chatprune-toggle-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -156,4 +157,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center
+}
+
+/* Always on: skip layout/paint for off-screen turns so React Hd/Gd touch less. */
+[data-testid^="conversation-turn-"],
+[data-turn-id-container] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
 }

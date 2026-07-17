@@ -1,6 +1,6 @@
 {
   "name": "Chat Pruner (ChatGPT)",
-  "version": "1.5.2",
+  "version": "1.9.1",
   "manifest_version": 3,
   "description": "Prune ChatGPT threads and block telemetry to reduce UI freezes.",
   "permissions": [
@@ -10,7 +10,13 @@
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
-    "https://ab.chatgpt.com/*"
+    "https://ab.chatgpt.com/*",
+    "https://events.statsigapi.net/*",
+    "*://*.statsigapi.net/*",
+    "https://api.oaistatsig.com/*",
+    "*://*.oaistatsig.com/*",
+    "https://featuregates.org/*",
+    "*://*.featuregates.org/*"
   ],
   "declarative_net_request": {
     "rule_resources": [
@@ -24,6 +30,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "net-guard.js",
         "debounce.js",
         "profiler.js"
       ],
@@ -34,6 +41,17 @@
     }
   ],
   "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "scroll-patch.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": [
         "https://chatgpt.com/*",

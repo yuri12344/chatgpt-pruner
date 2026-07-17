@@ -26,7 +26,6 @@
       FAST_COOLDOWN_FACTOR: 1.0,
       ASSISTANT_MIN_GROWTH: 700,
       ASSISTANT_MAX_HOLD_MS: 8000,
-      KEEP_TURNS: 6,
     },
     balanced: {
       FLUSH_INTERVAL: 180,
@@ -45,7 +44,6 @@
       FAST_COOLDOWN_FACTOR: 0.9,
       ASSISTANT_MIN_GROWTH: 600,
       ASSISTANT_MAX_HOLD_MS: 7000,
-      KEEP_TURNS: 6,
     },
     snappy: {
       FLUSH_INTERVAL: 150,
@@ -64,7 +62,6 @@
       FAST_COOLDOWN_FACTOR: 0.75,
       ASSISTANT_MIN_GROWTH: 500,
       ASSISTANT_MAX_HOLD_MS: 6000,
-      KEEP_TURNS: 6,
     },
   };
 
@@ -98,7 +95,6 @@
     FAST_COOLDOWN_FACTOR,
     ASSISTANT_MIN_GROWTH,
     ASSISTANT_MAX_HOLD_MS,
-    KEEP_TURNS,
   } = TUNING;
   const CONV_URL = '/backend-api/f/conversation';
   const DEBUG_MODE = (() => {
@@ -578,27 +574,8 @@
     return false;
   }
 
-  // ─── Prune old messages to reduce RAM use ───
-  function pruneTurns() {
-    let turns = Array.from(document.querySelectorAll('article[data-testid^="conversation-turn"]'));
-    if (!turns.length) turns = Array.from(document.querySelectorAll('[data-testid^="conversation-turn"]'));
-    if (turns.length <= KEEP_TURNS) return;
-
-    const toRemove = turns.slice(0, turns.length - KEEP_TURNS);
-    const parent = toRemove[0].parentElement;
-
-    let placeholder = document.getElementById('chatpruner-stream-placeholder');
-    if (!placeholder && parent) {
-      placeholder = document.createElement('div');
-      placeholder.id = 'chatpruner-stream-placeholder';
-      placeholder.style.cssText = 'padding:8px 12px;margin:6px 0;border:1px dashed rgba(255,255,255,.25);border-radius:10px;opacity:.7;font-size:13px;color:#aaa;text-align:center;';
-      parent.insertBefore(placeholder, parent.firstChild);
-    }
-    for (const node of toRemove) node.remove();
-    if (placeholder) placeholder.textContent = `🗿 ${toRemove.length} older messages hidden (keeping ${KEEP_TURNS})`;
-  }
-
   // ─── Interceptor with deduplication ───
+  // ponytail: DOM prune lives only in content.js (duplicate stream-side prune fought Keep=20)
   const originalFetch = window.fetch;
 
   window.fetch = function (...args) {
@@ -611,12 +588,7 @@
       return originalFetch.apply(this, args);
     }
 
-    setTimeout(() => {
-      try { pruneTurns(); } catch { }
-    }, 0);
-
     logDebug('[ChatPruner] 🔧 Stream intercepted — anti-freeze deduplicator enabled');
-
     return originalFetch.apply(this, args).then(response => {
       if (!response.ok || !response.body) return response;
 
@@ -1279,5 +1251,5 @@
   };
 
   console.log('[ChatPruner] ✅ SSE deduplicator active — anti-freeze enabled');
-  logDebug('[ChatPruner] ⚙️  Preset: ' + ACTIVE_TUNING + ' | Flush: ' + FLUSH_INTERVAL + 'ms | Budget: ' + PROCESS_BUDGET_MS + 'ms | Prune: keep ' + KEEP_TURNS + ' turns');
+  logDebug('[ChatPruner] ⚙️  Preset: ' + ACTIVE_TUNING + ' | Flush: ' + FLUSH_INTERVAL + 'ms | Budget: ' + PROCESS_BUDGET_MS + 'ms');
 })();

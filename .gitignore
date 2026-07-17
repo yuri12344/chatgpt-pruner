@@ -1,2 +1,11 @@
 .DS_Store
 _metadata/
+**/_metadata/
+
+# local dumps / performance scratch (keep fixtures/)
+trash shit
+Testar eventos HTML*.html
+*.json.gz
+*.trace.json
+/trace*
+/perf-*
