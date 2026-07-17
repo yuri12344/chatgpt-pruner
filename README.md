@@ -87,6 +87,19 @@ Then inspect `window.__chatPrunerProfile` and `window.__chatPrunerStreamStats` d
 | **Auto** | Prune automatically on new messages |
 | **Preset** | Stream tuning preset |
 | **Reload** | Reload page to apply preset |
+| **Bridge terminal** | Live codex-bridge process output (Codex-style pane, v1.10) |
+
+### Bridge terminal (v1.10, opcional)
+
+Prefer **terminal real no PC**: no repo `codex-bridge`, `./scripts/tail-process.sh '<viewToken>'` (SSE local, só leitura).
+
+A extensão ainda pode abrir um painel no browser (**Bridge terminal**, desligado por padrão). Sniff de `viewToken` em `call_mcp` + SSE via service worker.
+
+- **Open terminal** — show the log pane
+- **−** on the terminal — minimize to `>_ bridge` tab
+- **clear** — wipe output
+
+After updating: `chrome://extensions` → **Reload** this extension, then reload ChatGPT.
 
 ## Privacy
 
@@ -100,6 +113,7 @@ Then inspect `window.__chatPrunerProfile` and `window.__chatPrunerStreamStats` d
 | File | Role |
 |------|------|
 | `manifest.json` | Extension manifest (MV3) |
+| `background.js` | Bridge SSE relay (`/process/stream` → panel) |
 | `content.js` | UI panel, pruning, script injection |
 | `net-guard.js` | Block/stub/dedupe noisy ChatGPT API calls |
 | `debounce.js` | SSE intercept, batching, presets |

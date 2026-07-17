@@ -61,8 +61,105 @@
     mcpCircuitOpen: 0,
     connectorCached: 0,
     sidebarHistoryCached: 0,
+    bridgeTokens: 0,
   };
   window.__chatPrunerNetGuardStats = stats;
+
+  const TOKEN_KEYS = ['viewToken', 'view_token', 'processStreamUrl', 'process_stream_url'];
+
+  function deepFindStrings(obj) {
+    const found = {};
+    if (!obj || typeof obj !== 'object') return found;
+    const stack = [obj];
+    const seen = new Set();
+    while (stack.length) {
+      const cur = stack.pop();
+      if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+      seen.add(cur);
+      for (const k of TOKEN_KEYS) {
+        const v = cur[k];
+        if (typeof v === 'string' && v && !found[k]) found[k] = v;
+      }
+      for (const v of Object.values(cur)) {
+        if (v && typeof v === 'object') stack.push(v);
+      }
+    }
+    return found;
+  }
+
+  function toolFromMcpBody(body) {
+    if (!body || typeof body !== 'object') return '';
+    return (
+      body?.params?.name ||
+      body?.name ||
+      body?.tool ||
+      body?.arguments?.name ||
+      ''
+    );
+  }
+
+  function conversationIdFromUrl() {
+    const m = location.pathname.match(/\/c\/([a-f0-9-]+)/i);
+    return m ? m[1] : '';
+  }
+
+  function emitBridgeToken(detail) {
+    const viewToken = detail?.viewToken;
+    if (!viewToken) return;
+    const threadId = detail?.threadId || conversationIdFromUrl();
+    stats.bridgeTokens += 1;
+    try {
+      document.dispatchEvent(
+        new CustomEvent('chatpruner:bridge-token', {
+          detail: {
+            viewToken,
+            threadId,
+            processStreamUrl: detail.processStreamUrl || '',
+            tool: detail.tool || '',
+          },
+        }),
+      );
+    } catch { /* ponytail: best-effort */ }
+  }
+
+  function sniffMcpPair(reqBody, resBody) {
+    let tool = '';
+    try {
+      const req = typeof reqBody === 'string' ? JSON.parse(reqBody) : reqBody;
+      if (req) {
+        tool = toolFromMcpBody(req);
+        const hit = deepFindStrings(req);
+        if (hit.viewToken || hit.view_token) {
+          emitBridgeToken({
+            viewToken: hit.viewToken || hit.view_token,
+            processStreamUrl: hit.processStreamUrl || hit.process_stream_url || '',
+            tool,
+          });
+        }
+      }
+    } catch { /* ponytail: opaque body */ }
+    try {
+      const res = typeof resBody === 'string' ? JSON.parse(resBody) : resBody;
+      if (!res) return;
+      const hit = deepFindStrings(res);
+      if (hit.viewToken || hit.view_token) {
+        emitBridgeToken({
+          viewToken: hit.viewToken || hit.view_token,
+          processStreamUrl: hit.processStreamUrl || hit.process_stream_url || '',
+          tool: tool || toolFromMcpBody(res),
+        });
+      }
+    } catch { /* ponytail: opaque body */ }
+  }
+
+  async function sniffMcpFetchResponse(res, reqBody) {
+    const wrapped = await wrapMcpResponse(res);
+    try {
+      const text = await wrapped.clone().text();
+      sniffMcpPair(reqBody, text);
+    } catch { /* ponytail: best-effort */ }
+    return wrapped;
+  }
 
   function urlOf(resource) {
     return typeof resource === 'string' ? resource : resource?.url || '';
@@ -300,7 +397,8 @@
     if (key) return dedupeFetch(key, resource, init);
 
     if (url.includes(CALL_MCP_URL)) {
-      return originalFetch(resource, init).then(wrapMcpResponse);
+      const reqBody = init?.body;
+      return sniffMcpFetchResponse(originalFetch(resource, init), reqBody);
     }
 
     return originalFetch(resource, init);
@@ -398,6 +496,7 @@
     if (!url.includes(CALL_MCP_URL)) {
       return originalXhrSend.apply(this, args);
     }
+    if (args[0] && typeof args[0] === 'string') xhr.__cpReqBody = args[0];
     const priorOnload = xhr.onload;
     xhr.onload = function (...onloadArgs) {
       if (xhr.status >= 200 && xhr.status < 300) mcpCircuitOpen = false;
@@ -405,6 +504,9 @@
         mcpCircuitOpen = true;
         stats.mcpCircuitTripped++;
       }
+      try {
+        sniffMcpPair(xhr.__cpReqBody, xhr.responseText);
+      } catch { /* ponytail */ }
       if (priorOnload) return priorOnload.apply(this, onloadArgs);
     };
     return originalXhrSend.apply(this, args);

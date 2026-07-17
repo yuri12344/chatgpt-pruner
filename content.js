@@ -27,7 +27,26 @@
   const PRESET_STORAGE_KEY = 'chatpruner:tuning-preset';
   const PRESET_VALUES = ['stable', 'balanced', 'snappy'];
   // ponytail: keep 10 — Yo/Hd/Gd scale with mounted turns (trace: 768–824ms RunTask)
-  const DEFAULTS = { keepLast: 10, auto: false, minimized: false, tuningPreset: 'balanced' };
+  const DEFAULTS = {
+    keepLast: 10,
+    auto: false,
+    minimized: false,
+    tuningPreset: 'balanced',
+    bridgeLog: false,
+    bridgeTermMin: false,
+  };
+
+  const BRIDGE_LOG_MAX_LINES = 200;
+
+  const bridge = {
+    port: null,
+    enabled: true,
+    termVisible: false,
+    termMin: false,
+    lastToken: '',
+    convLabel: '',
+    lineCount: 0,
+  };
 
   const state = {
     placeholderEl: null,
@@ -54,6 +73,173 @@
 
   function qs(sel, root = document) { return root.querySelector(sel); }
   function qsa(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+
+  function conversationIdFromUrl() {
+    const m = location.pathname.match(/\/c\/([a-f0-9-]+)/i);
+    return m ? m[1] : '';
+  }
+
+  function setBridgeStatus(text) {
+    const el = document.getElementById('chatprune-bridge-status');
+    if (el) el.textContent = text;
+    const term = document.getElementById('chatprune-terminal');
+    if (term) term.dataset.state = text;
+  }
+
+  function showBridgeTerminal(show = true) {
+    bridge.termVisible = show;
+    const term = document.getElementById('chatprune-terminal');
+    const tab = document.getElementById('chatprune-term-tab');
+    if (!term || !tab) return;
+    if (!bridge.enabled || !show) {
+      term.hidden = true;
+      tab.hidden = !bridge.enabled || !bridge.termMin;
+      return;
+    }
+    bridge.termMin = false;
+    term.hidden = false;
+    tab.hidden = true;
+  }
+
+  function minimizeBridgeTerminal() {
+    bridge.termMin = true;
+    const term = document.getElementById('chatprune-terminal');
+    const tab = document.getElementById('chatprune-term-tab');
+    if (term) term.hidden = true;
+    if (tab && bridge.enabled) tab.hidden = false;
+    void setSettings({ bridgeTermMin: true });
+  }
+
+  function clearBridgeLog() {
+    const body = document.getElementById('chatprune-bridge-log');
+    if (body) body.replaceChildren();
+    bridge.lineCount = 0;
+  }
+
+  function appendBridgeLine(text, kind = 'stdout') {
+    if (!bridge.enabled || !text) return;
+    showBridgeTerminal(true);
+    const body = document.getElementById('chatprune-bridge-log');
+    if (!body) return;
+    const span = document.createElement('span');
+    span.className = `cp-line cp-${kind}`;
+    const chunk = kind === 'cmd' || kind === 'meta' ? `${text}\n` : text;
+    span.textContent = chunk;
+    body.appendChild(span);
+    bridge.lineCount += (chunk.match(/\n/g) || []).length + (chunk.endsWith('\n') ? 0 : 1);
+    while (bridge.lineCount > BRIDGE_LOG_MAX_LINES && body.firstChild) {
+      const first = body.firstChild;
+      const t = first.textContent || '';
+      bridge.lineCount -= (t.match(/\n/g) || []).length + (t.endsWith('\n') ? 0 : 1);
+      first.remove();
+    }
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function ensureBridgePort() {
+    if (bridge.port) return bridge.port;
+    try {
+      bridge.port = chrome.runtime.connect({ name: 'bridge-log' });
+      bridge.port.onMessage.addListener((msg) => {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'status') {
+          setBridgeStatus(msg.message || msg.state || '…');
+          return;
+        }
+        if (msg.type === 'line' && msg.text) {
+          appendBridgeLine(msg.text, msg.kind || 'stdout');
+        }
+      });
+      bridge.port.onDisconnect.addListener(() => {
+        bridge.port = null;
+        setBridgeStatus('disconnected');
+      });
+    } catch {
+      setBridgeStatus('port failed');
+    }
+    return bridge.port;
+  }
+
+  function subscribeBridgeToken(viewToken, threadId = '', tool = '') {
+    if (!bridge.enabled || !viewToken) return;
+    bridge.lastToken = viewToken;
+    bridge.convLabel = threadId || conversationIdFromUrl();
+    const convEl = document.getElementById('chatprune-bridge-conv');
+    if (convEl) {
+      convEl.textContent = bridge.convLabel ? `~/thread/${bridge.convLabel.slice(0, 8)}` : '~/thread';
+    }
+    showBridgeTerminal(true);
+    const port = ensureBridgePort();
+    if (!port) return;
+    setBridgeStatus('connecting');
+    if (tool) appendBridgeLine(`# ${tool}`, 'meta');
+    port.postMessage({ type: 'setToken', viewToken, threadId: bridge.convLabel });
+  }
+
+  function mountBridgeTerminal(initial) {
+    if (document.getElementById('chatprune-terminal')) return;
+
+    const term = document.createElement('div');
+    term.id = 'chatprune-terminal';
+    term.hidden = true;
+    term.innerHTML = `
+      <div class="cp-term-titlebar">
+        <span class="cp-term-bullet" aria-hidden="true">•</span>
+        <span class="cp-term-title">computer-use</span>
+        <span id="chatprune-bridge-conv" class="cp-term-path">~/thread</span>
+        <span id="chatprune-bridge-status" class="cp-term-status">idle</span>
+        <span class="cp-term-actions">
+          <button type="button" id="chatprune-term-clear" class="cp-term-btn" title="Clear">clear</button>
+          <button type="button" id="chatprune-term-min" class="cp-term-btn" title="Minimize">−</button>
+        </span>
+      </div>
+      <div id="chatprune-bridge-log" class="cp-term-body" role="log"></div>
+    `;
+
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.id = 'chatprune-term-tab';
+    tab.hidden = true;
+    tab.title = 'Open bridge terminal';
+    tab.textContent = '>_ bridge';
+
+    document.documentElement.appendChild(term);
+    document.documentElement.appendChild(tab);
+
+    document.getElementById('chatprune-term-clear')?.addEventListener('click', clearBridgeLog);
+    document.getElementById('chatprune-term-min')?.addEventListener('click', minimizeBridgeTerminal);
+    tab.addEventListener('click', () => {
+      bridge.termMin = false;
+      void setSettings({ bridgeTermMin: false });
+      showBridgeTerminal(true);
+    });
+
+    bridge.termMin = !!initial.bridgeTermMin;
+    if (bridge.enabled && !bridge.termMin) showBridgeTerminal(true);
+    else if (bridge.enabled && bridge.termMin) {
+      term.hidden = true;
+      tab.hidden = false;
+    }
+  }
+
+  function installBridgeLog() {
+    document.addEventListener('chatpruner:bridge-token', (ev) => {
+      const d = ev?.detail;
+      if (!d?.viewToken) return;
+      subscribeBridgeToken(d.viewToken, d.threadId || '', d.tool || '');
+    });
+
+    const onNav = () => {
+      const cid = conversationIdFromUrl();
+      if (cid && cid !== bridge.convLabel) {
+        bridge.convLabel = cid;
+        const el = document.getElementById('chatprune-bridge-conv');
+        if (el) el.textContent = cid ? `~/thread/${cid.slice(0, 8)}` : '~/thread';
+      }
+    };
+    onNav();
+    setInterval(onNav, 2000);
+  }
 
   function logStatus(msg) {
     const el = document.getElementById('chatprune-status');
@@ -397,6 +583,13 @@
         <input type="checkbox" id="chatprune-auto" />
         <label for="chatprune-auto">Auto (prune on its own)</label>
       </div>
+      <div class="chatprune-toggle-row">
+        <input type="checkbox" id="chatprune-bridge-log-toggle" />
+        <label for="chatprune-bridge-log-toggle">Bridge terminal</label>
+      </div>
+      <div id="chatprune-bridge-row">
+        <button type="button" class="chatprune-btn chatprune-btn-ghost" id="chatprune-open-term">Open terminal</button>
+      </div>
       <div id="chatprune-status">Ready.</div>
       <div id="chatprune-footer">
         <span class="chatprune-link" id="chatprune-minimize">Minimize</span>
@@ -424,9 +617,13 @@
     const autoCk = document.getElementById('chatprune-auto');
     const presetSel = document.getElementById('chatprune-preset');
     const presetHintEl = document.getElementById('chatprune-preset-hint');
+    const bridgeCk = document.getElementById('chatprune-bridge-log-toggle');
+    const openTermBtn = document.getElementById('chatprune-open-term');
 
     keepInput.value = String(initial.keepLast);
     autoCk.checked = !!initial.auto;
+    bridge.enabled = initial.bridgeLog !== false;
+    if (bridgeCk) bridgeCk.checked = bridge.enabled;
     const activePreset = applyPagePreset(initial.tuningPreset);
     presetSel.value = activePreset;
     presetHintEl.textContent = presetHint(activePreset);
@@ -458,6 +655,33 @@
       presetHintEl.textContent = presetHint(preset);
       await setSettings({ tuningPreset: preset });
       logStatus(`Preset ${preset} saved. Click Reload to apply.`);
+    });
+
+    bridgeCk?.addEventListener('change', async () => {
+      bridge.enabled = !!bridgeCk.checked;
+      await setSettings({ bridgeLog: bridge.enabled });
+      if (bridge.enabled) {
+        showBridgeTerminal(true);
+        if (bridge.lastToken) subscribeBridgeToken(bridge.lastToken);
+      } else {
+        if (bridge.port) {
+          bridge.port.postMessage({ type: 'close' });
+          bridge.port.disconnect();
+          bridge.port = null;
+        }
+        showBridgeTerminal(false);
+        const tab = document.getElementById('chatprune-term-tab');
+        if (tab) tab.hidden = true;
+        setBridgeStatus('off');
+      }
+    });
+
+    openTermBtn?.addEventListener('click', () => {
+      bridge.enabled = true;
+      if (bridgeCk) bridgeCk.checked = true;
+      void setSettings({ bridgeLog: true, bridgeTermMin: false });
+      showBridgeTerminal(true);
+      if (bridge.lastToken) subscribeBridgeToken(bridge.lastToken);
     });
 
     document.getElementById('chatprune-minimize').addEventListener('click', async () => {
@@ -509,6 +733,8 @@
       const settings = await getSettings();
       settings.tuningPreset = normalizePreset(settings.tuningPreset);
       mountUI(settings);
+      mountBridgeTerminal(settings);
+      installBridgeLog();
       installPreSendLightenHook();
       if (settings.auto) setAuto(true, settings.keepLast);
       else logStatus('Ready. (Use Prune or enable Auto)');

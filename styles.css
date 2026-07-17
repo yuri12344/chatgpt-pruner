@@ -24,7 +24,8 @@
   opacity: .95
 }
 
-#chatprune-row {
+#chatprune-row,
+#chatprune-bridge-row {
   display: flex;
   gap: 8px;
   margin: 8px 0
@@ -40,6 +41,13 @@
   padding: 7px 8px;
   font-size: 12px;
   font-weight: 800
+}
+
+.chatprune-btn-ghost {
+  flex: 1;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
 }
 
 .chatprune-btn:hover {
@@ -157,6 +165,150 @@
   display: flex;
   justify-content: space-between;
   align-items: center
+}
+
+/* Codex-style bridge terminal — separate from pruner panel */
+#chatprune-terminal {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 999998;
+  width: min(560px, calc(100vw - 32px));
+  height: min(340px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #e6edf3;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 0;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .55);
+}
+
+#chatprune-terminal[hidden] {
+  display: none !important;
+}
+
+#chatprune-terminal[data-state="listening"] .cp-term-bullet,
+#chatprune-terminal[data-state="connecting"] .cp-term-bullet {
+  animation: cp-bullet-blink 600ms step-end infinite;
+}
+
+@keyframes cp-bullet-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
+.cp-term-titlebar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #21262d;
+  background: #161b22;
+  font-size: 11px;
+  user-select: none;
+}
+
+.cp-term-bullet {
+  color: #3fb950;
+  font-weight: 700;
+}
+
+.cp-term-title {
+  font-weight: 700;
+  color: #e6edf3;
+}
+
+.cp-term-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #7d8590;
+}
+
+.cp-term-status {
+  color: #39c5cf;
+  text-transform: lowercase;
+  font-size: 10px;
+}
+
+.cp-term-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.cp-term-btn {
+  font: inherit;
+  font-size: 10px;
+  color: #39c5cf;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.cp-term-btn:hover {
+  text-decoration: underline;
+}
+
+.cp-term-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 10px 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0d1117;
+}
+
+.cp-line.cp-cmd {
+  color: #e6edf3;
+  font-weight: 700;
+}
+
+.cp-line.cp-meta {
+  color: #7d8590;
+}
+
+.cp-line.cp-stderr {
+  color: #f85149;
+}
+
+.cp-line.cp-stdout {
+  color: #e6edf3;
+}
+
+#chatprune-term-tab {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 999998;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #39c5cf;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 0;
+  padding: 8px 12px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+
+#chatprune-term-tab[hidden] {
+  display: none !important;
+}
+
+#chatprune-term-tab:hover {
+  background: #21262d;
 }
 
 /* Always on: skip layout/paint for off-screen turns so React Hd/Gd touch less. */
