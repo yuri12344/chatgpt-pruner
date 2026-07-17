@@ -26,26 +26,31 @@
 
   const PRESET_STORAGE_KEY = 'chatpruner:tuning-preset';
   const PRESET_VALUES = ['stable', 'balanced', 'snappy'];
-  // ponytail: keep 10 — Yo/Hd/Gd scale with mounted turns (trace: 768–824ms RunTask)
+  const HOT_TURNS = 2;
+  // ponytail: Auto on + keep 6 — DOM prune is the main RunTask lever
   const DEFAULTS = {
-    keepLast: 10,
-    auto: false,
+    keepLast: 6,
+    auto: true,
     minimized: false,
     tuningPreset: 'balanced',
     bridgeLog: false,
     bridgeTermMin: false,
+    widgetHibernate: true,
+    lowMotion: false,
+    policyV2: false,
   };
 
   const BRIDGE_LOG_MAX_LINES = 200;
 
   const bridge = {
     port: null,
-    enabled: true,
+    enabled: false,
     termVisible: false,
     termMin: false,
     lastToken: '',
     convLabel: '',
     lineCount: 0,
+    navInstalled: false,
   };
 
   const state = {
@@ -63,6 +68,8 @@
     pruneQueued: false,
     pruneInFlight: false,
     pruneNeedsRerun: false,
+    widgetHibernate: true,
+    lowMotion: false,
   };
 
   const THROTTLE_MS = 400;
@@ -223,12 +230,15 @@
   }
 
   function installBridgeLog() {
+    if (!bridge.enabled) return;
     document.addEventListener('chatpruner:bridge-token', (ev) => {
       const d = ev?.detail;
       if (!d?.viewToken) return;
       subscribeBridgeToken(d.viewToken, d.threadId || '', d.tool || '');
     });
 
+    if (bridge.navInstalled) return;
+    bridge.navInstalled = true;
     const onNav = () => {
       const cid = conversationIdFromUrl();
       if (cid && cid !== bridge.convLabel) {
@@ -238,7 +248,8 @@
       }
     };
     onNav();
-    setInterval(onNav, 2000);
+    document.addEventListener('chatpruner:navigate', onNav);
+    window.addEventListener('popstate', onNav);
   }
 
   function logStatus(msg) {
@@ -262,7 +273,68 @@
 
   function clampKeep(n) {
     if (!Number.isFinite(n)) return DEFAULTS.keepLast;
-    return Math.max(5, Math.min(200, n));
+    return Math.max(4, Math.min(200, n));
+  }
+
+  function mirrorLowMotion(enabled) {
+    document.documentElement.classList.toggle('chatpruner-low-motion', !!enabled);
+    document.documentElement.classList.toggle('chatpruner-no-effects', !!enabled);
+  }
+
+  function markScrollTargets(container) {
+    let el = container;
+    for (let i = 0; i < 10 && el; i++) {
+      if (el instanceof HTMLElement) el.dataset.chatprunerScroll = '1';
+      el = el.parentElement;
+    }
+  }
+
+  function hibernateTurnWidgets(root) {
+    if (!state.widgetHibernate || !(root instanceof Element)) return 0;
+    let n = 0;
+    for (const iframe of root.querySelectorAll('iframe')) {
+      if (iframe.dataset.prunerHibernated === '1') continue;
+      const src = iframe.getAttribute('src') || iframe.src || '';
+      const title = iframe.getAttribute('title') || iframe.getAttribute('aria-label') || 'widget';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chatprune-hibernated-widget';
+      btn.textContent = `Hibernated: ${title} (click to restore)`;
+      btn.dataset.prunerSrc = src;
+      iframe.dataset.prunerHibernated = '1';
+      iframe.replaceWith(btn);
+      btn.addEventListener('click', () => {
+        const neo = document.createElement('iframe');
+        if (btn.dataset.prunerSrc) neo.src = btn.dataset.prunerSrc;
+        neo.setAttribute('title', title);
+        btn.replaceWith(neo);
+      }, { once: true });
+      n += 1;
+    }
+    return n;
+  }
+
+  function markColdTurns() {
+    const turns = findTurnsGlobal();
+    if (!turns.length) return;
+    const hotStart = Math.max(0, turns.length - HOT_TURNS);
+    let hibernated = 0;
+    for (let i = 0; i < turns.length; i++) {
+      const root = turnRoot(turns[i]);
+      if (!(root instanceof HTMLElement)) continue;
+      const cold = i < hotStart;
+      root.classList.toggle('chatpruner-cold', cold);
+      root.classList.toggle('chatpruner-hot', !cold);
+      if (cold) {
+        root.style.contentVisibility = 'auto';
+        root.style.containIntrinsicSize = 'auto 480px';
+        hibernated += hibernateTurnWidgets(root);
+      } else {
+        root.style.contentVisibility = '';
+        root.style.containIntrinsicSize = '';
+      }
+    }
+    if (hibernated) logStatus(`Hibernated ${hibernated} widget(s) in cold turns.`);
   }
 
   function normalizePreset(value) {
@@ -393,6 +465,7 @@
     if (container) state.container = container;
 
     if (turns.length <= keep) {
+      markColdTurns();
       const ghosts = cleanupGhostTurns(false);
       if (ghosts) logStatus(`Auto: on. Messages: ${turns.length} (limit: ${keep}). Cleared ${ghosts} ghosts.`);
       else logStatus(`Auto: on. Messages: ${turns.length} (limit: ${keep}).`);
@@ -429,6 +502,7 @@
       }
 
       state.pruneInFlight = false;
+      markColdTurns();
       const ghosts = cleanupGhostTurns(true);
       logStatus(`Pruned ${total} turns. Cleared ${ghosts} ghosts. Kept ${keep}.`);
 
@@ -515,8 +589,9 @@
       const container = findContainerFromTurns(turns);
       if (!container) return false;
       state.container = container;
+      markScrollTargets(container);
       attachObserver(container);
-      schedulePrune();
+      prune(state.keepLast, true); // markColdTurns runs when prune finishes
       return true;
     };
 
@@ -564,7 +639,7 @@
       <h4>Chat Pruner</h4>
       <div id="chatprune-meta">
         <div>Keep</div>
-        <input id="chatprune-keep" type="number" min="5" max="200" step="1" />
+        <input id="chatprune-keep" type="number" min="4" max="200" step="1" />
       </div>
       <div id="chatprune-preset-row">
         <div>Preset</div>
@@ -582,6 +657,14 @@
       <div class="chatprune-toggle-row">
         <input type="checkbox" id="chatprune-auto" />
         <label for="chatprune-auto">Auto (prune on its own)</label>
+      </div>
+      <div class="chatprune-toggle-row">
+        <input type="checkbox" id="chatprune-hibernate" />
+        <label for="chatprune-hibernate">Hibernate old widgets</label>
+      </div>
+      <div class="chatprune-toggle-row">
+        <input type="checkbox" id="chatprune-low-motion" />
+        <label for="chatprune-low-motion">Low motion / no FX</label>
       </div>
       <div class="chatprune-toggle-row">
         <input type="checkbox" id="chatprune-bridge-log-toggle" />
@@ -619,11 +702,18 @@
     const presetHintEl = document.getElementById('chatprune-preset-hint');
     const bridgeCk = document.getElementById('chatprune-bridge-log-toggle');
     const openTermBtn = document.getElementById('chatprune-open-term');
+    const hibernateCk = document.getElementById('chatprune-hibernate');
+    const lowMotionCk = document.getElementById('chatprune-low-motion');
 
     keepInput.value = String(initial.keepLast);
     autoCk.checked = !!initial.auto;
-    bridge.enabled = initial.bridgeLog !== false;
+    bridge.enabled = !!initial.bridgeLog;
     if (bridgeCk) bridgeCk.checked = bridge.enabled;
+    state.widgetHibernate = initial.widgetHibernate !== false;
+    state.lowMotion = !!initial.lowMotion;
+    if (hibernateCk) hibernateCk.checked = state.widgetHibernate;
+    if (lowMotionCk) lowMotionCk.checked = state.lowMotion;
+    mirrorLowMotion(state.lowMotion);
     const activePreset = applyPagePreset(initial.tuningPreset);
     presetSel.value = activePreset;
     presetHintEl.textContent = presetHint(activePreset);
@@ -657,10 +747,24 @@
       logStatus(`Preset ${preset} saved. Click Reload to apply.`);
     });
 
+    hibernateCk?.addEventListener('change', async () => {
+      state.widgetHibernate = !!hibernateCk.checked;
+      await setSettings({ widgetHibernate: state.widgetHibernate });
+      markColdTurns();
+    });
+
+    lowMotionCk?.addEventListener('change', async () => {
+      state.lowMotion = !!lowMotionCk.checked;
+      mirrorLowMotion(state.lowMotion);
+      await setSettings({ lowMotion: state.lowMotion });
+    });
+
     bridgeCk?.addEventListener('change', async () => {
       bridge.enabled = !!bridgeCk.checked;
       await setSettings({ bridgeLog: bridge.enabled });
       if (bridge.enabled) {
+        mountBridgeTerminal({ bridgeTermMin: bridge.termMin });
+        installBridgeLog();
         showBridgeTerminal(true);
         if (bridge.lastToken) subscribeBridgeToken(bridge.lastToken);
       } else {
@@ -680,6 +784,8 @@
       bridge.enabled = true;
       if (bridgeCk) bridgeCk.checked = true;
       void setSettings({ bridgeLog: true, bridgeTermMin: false });
+      mountBridgeTerminal({ bridgeTermMin: false });
+      installBridgeLog();
       showBridgeTerminal(true);
       if (bridge.lastToken) subscribeBridgeToken(bridge.lastToken);
     });
@@ -730,11 +836,21 @@
 
   function init() {
     (async () => {
-      const settings = await getSettings();
+      let settings = await getSettings();
       settings.tuningPreset = normalizePreset(settings.tuningPreset);
+      // one-shot: Auto on + Keep 6 for upgrades that still had Auto off
+      if (!settings.policyV2) {
+        settings = { ...settings, auto: true, keepLast: 6, policyV2: true };
+        await setSettings({ auto: true, keepLast: 6, policyV2: true });
+      }
+      state.widgetHibernate = settings.widgetHibernate !== false;
+      state.lowMotion = !!settings.lowMotion;
+      mirrorLowMotion(state.lowMotion);
       mountUI(settings);
-      mountBridgeTerminal(settings);
-      installBridgeLog();
+      if (settings.bridgeLog) {
+        mountBridgeTerminal(settings);
+        installBridgeLog();
+      }
       installPreSendLightenHook();
       if (settings.auto) setAuto(true, settings.keepLast);
       else logStatus('Ready. (Use Prune or enable Auto)');

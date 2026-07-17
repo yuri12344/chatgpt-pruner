@@ -45,15 +45,6 @@
         }
     },
     {
-        "id": 6,
-        "priority": 1,
-        "action": { "type": "block" },
-        "condition": {
-            "urlFilter": "*/backend-api/sentinel/ping",
-            "resourceTypes": ["xmlhttprequest", "other"]
-        }
-    },
-    {
         "id": 7,
         "priority": 1,
         "action": { "type": "block" },
@@ -68,15 +59,6 @@
         "action": { "type": "block" },
         "condition": {
             "urlFilter": "*/ces/v1/rgstr*",
-            "resourceTypes": ["xmlhttprequest", "other"]
-        }
-    },
-    {
-        "id": 9,
-        "priority": 2,
-        "action": { "type": "block" },
-        "condition": {
-            "urlFilter": "*/backend-api/sentinel/heartbeat",
             "resourceTypes": ["xmlhttprequest", "other"]
         }
     },

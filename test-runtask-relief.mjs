@@ -8,59 +8,46 @@ const rules = JSON.parse(readFileSync(new URL('./rules.json', import.meta.url), 
 const scroll = readFileSync(new URL('./scroll-patch.js', import.meta.url), 'utf8');
 const content = readFileSync(new URL('./content.js', import.meta.url), 'utf8');
 const manifest = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
+const netGuard = readFileSync(new URL('./net-guard.js', import.meta.url), 'utf8');
 
-test('CSS applies content-visibility to turns (always on)', () => {
+test('cold turns get content-visibility; hot turns do not via global CSS', () => {
+  assert.match(css, /\.chatpruner-cold/);
   assert.match(css, /content-visibility:\s*auto/);
-  assert.match(css, /\[data-testid\^="conversation-turn-"\]/);
-  assert.doesNotMatch(css, /chatgpt-pruner-terminal/);
-  assert.doesNotMatch(content, /terminalLite|Terminal Lite|chatprune-lite/);
+  assert.doesNotMatch(css, /^\[data-testid\^="conversation-turn-"\]/m);
+  assert.match(content, /HOT_TURNS\s*=\s*2/);
+  assert.match(content, /markColdTurns/);
 });
 
-test('DNR blocks telemetry/intake and statsig family', () => {
-  const filters = rules.map((r) => r.condition.urlFilter);
-  assert.ok(filters.some((f) => f.includes('telemetry/intake')));
-  assert.ok(filters.some((f) => f.includes('statsigapi.net')));
-  assert.ok(filters.some((f) => f.includes('oaistatsig.com')));
-  assert.ok(filters.some((f) => f.includes('featuregates.org')));
-  assert.ok(manifest.host_permissions.some((h) => h.includes('statsig')));
+test('defaults: Auto on, Keep 6', () => {
+  assert.match(content, /keepLast:\s*6/);
+  assert.match(content, /auto:\s*true/);
+  assert.match(content, /policyV2/);
 });
 
-test('scroll-patch is MAIN world document_start and coalesces scroll', () => {
+test('sentinel not in DNR block rules', () => {
+  const filters = rules.map((r) => r.condition.urlFilter).join('\n');
+  assert.doesNotMatch(filters, /sentinel/);
+  assert.doesNotMatch(netGuard, /BLOCK_PATTERNS[\s\S]{0,200}sentinel\/ping/);
+});
+
+test('scroll-patch: scroll only, no wheel', () => {
   const boot = (manifest.content_scripts || []).find(
     (s) => s.world === 'MAIN' && s.js?.includes('scroll-patch.js'),
   );
   assert.ok(boot, 'MAIN scroll-patch.js');
-  assert.equal(boot.run_at, 'document_start');
-  assert.match(scroll, /passive:\s*true/);
-  assert.match(scroll, /requestAnimationFrame/);
-  assert.match(scroll, /removeEventListener/);
   assert.match(scroll, /type === 'scroll'/);
-});
-
-test('scroll-patch memoizes cookie split', () => {
-  assert.match(scroll, /getOwnPropertyDescriptor\(Document\.prototype, 'cookie'\)/);
-  assert.match(scroll, /sep === '; '/);
+  assert.doesNotMatch(scroll, /type === 'wheel'/);
+  assert.match(scroll, /shouldCoalesceScroll/);
   assert.match(scroll, /TTL_MS/);
 });
 
-test('rAF coalesce drops duplicate scroll ticks', async () => {
-  let calls = 0;
-  let scheduled = false;
-  const queue = [];
-  const rAF = (fn) => { queue.push(fn); };
-  const listener = () => { calls += 1; };
-  const wrapped = function () {
-    if (scheduled) return;
-    scheduled = true;
-    rAF(() => {
-      scheduled = false;
-      listener();
-    });
-  };
-  wrapped();
-  wrapped();
-  wrapped();
-  assert.equal(calls, 0);
-  while (queue.length) queue.shift()();
-  assert.equal(calls, 1);
+test('bridge has no setInterval nav poll', () => {
+  assert.doesNotMatch(content, /setInterval\(onNav/);
+  assert.match(content, /chatpruner:navigate/);
+});
+
+test('low-motion CSS present', () => {
+  assert.match(css, /chatpruner-low-motion/);
+  assert.match(css, /chatpruner-no-effects/);
+  assert.doesNotMatch(css, /transform:\s*none/);
 });

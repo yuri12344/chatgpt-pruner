@@ -9,7 +9,7 @@ const read = (name) => readFileSync(new URL(name, root), 'utf8');
 
 test('manifest grants localhost bridge + service worker', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '1.10.1');
+  assert.equal(manifest.version, '1.11.0');
   assert.ok(manifest.host_permissions.some((p) => p.includes('127.0.0.1:8787')));
   assert.equal(manifest.background?.service_worker, 'background.js');
 });

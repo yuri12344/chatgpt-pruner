@@ -1,17 +1,21 @@
 /**
  * MAIN world, document_start.
- * 1) Coalesce scroll/wheel (passive + 1×/frame) before ChatGPT measureScroll.
- * 2) Memoize document.cookie.split('; ') — their getCookies re-parses every call (~147ms in traces).
+ * 1) Coalesce scroll on Element targets only (no wheel, no window/document).
+ * 2) Memoize document.cookie.split('; ').
  */
 (() => {
   if (window.__chatPrunerScrollPatch) return;
   window.__chatPrunerScrollPatch = true;
 
-  // ── scroll / wheel ──
   const proto = EventTarget.prototype;
   const origAdd = proto.addEventListener;
   const origRemove = proto.removeEventListener;
   const wraps = new WeakMap();
+
+  // ponytail: Element-only — listeners bind before we can mark the thread scroller
+  function shouldCoalesceScroll(target) {
+    return typeof Element !== 'undefined' && target instanceof Element;
+  }
 
   function wrapListener(listener) {
     if (typeof listener === 'function') {
@@ -55,23 +59,22 @@
     return { ...options, passive: true };
   }
 
+  // ponytail: scroll only — wheel left alone (CodeMirror/ProseMirror/modals)
   proto.addEventListener = function (type, listener, options) {
-    if (type === 'scroll' || type === 'wheel') {
+    if (type === 'scroll' && shouldCoalesceScroll(this)) {
       return origAdd.call(this, type, wrapListener(listener), passiveOpts(options));
     }
     return origAdd.call(this, type, listener, options);
   };
 
   proto.removeEventListener = function (type, listener, options) {
-    if ((type === 'scroll' || type === 'wheel') && listener != null) {
+    if (type === 'scroll' && listener != null) {
       const w = wraps.get(listener);
       if (w) origRemove.call(this, type, w, options);
     }
     return origRemove.call(this, type, listener, options);
   };
 
-  // ── cookie split cache ──
-  // ponytail: only helps repeated getCookies in a short window; fat jar still costs once
   try {
     const desc =
       Object.getOwnPropertyDescriptor(Document.prototype, 'cookie') ||

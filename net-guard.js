@@ -6,6 +6,7 @@
   if (window.__chatPrunerNetGuardActive) return;
   window.__chatPrunerNetGuardActive = true;
 
+  // ponytail: never block Sentinel — cheap heartbeats; blocking → retries/anti-abuse churn
   const BLOCK_PATTERNS = [
     '/ces/v1/rgstr',
     '/ces/v1/t',
@@ -13,9 +14,12 @@
     '/ces/statsc/',
     '/ces/v1/telemetry/',
     '/backend-api/lat/',
+    'ab.chatgpt.com/v1/rgstr',
+  ];
+
+  const SENTINEL_MEASURE = [
     '/backend-api/sentinel/ping',
     '/backend-api/sentinel/heartbeat',
-    'ab.chatgpt.com/v1/rgstr',
   ];
 
   const CONNECTOR_CACHE_URLS = [
@@ -62,8 +66,116 @@
     connectorCached: 0,
     sidebarHistoryCached: 0,
     bridgeTokens: 0,
+    sentinelSeen: 0,
+    convTrimmed: 0,
+    convTrimSkipped: 0,
   };
   window.__chatPrunerNetGuardStats = stats;
+
+  const TRIM_KEEP_VISIBLE = 6;
+  const TRIM_FLAG = 'chatpruner:trim-conversation-json';
+
+  function trimFlagOn() {
+    try { return localStorage.getItem(TRIM_FLAG) === '1'; } catch { return false; }
+  }
+
+  function isVisibleRole(node) {
+    const role = node?.message?.author?.role;
+    return role === 'user' || role === 'assistant';
+  }
+
+  /** Fail-open in-place trim of conversation tree. Returns true if mutated. */
+  function trimConversationInPlace(data, keepVisible = TRIM_KEEP_VISIBLE) {
+    const mapping = data?.mapping;
+    const current = data?.current_node;
+    if (!mapping || typeof mapping !== 'object' || !current || !mapping[current]) return false;
+
+    const chain = [];
+    const seen = new Set();
+    let id = current;
+    while (id && mapping[id] && !seen.has(id)) {
+      seen.add(id);
+      chain.push(id);
+      id = mapping[id].parent;
+    }
+    if (chain.length < 2) return false;
+    chain.reverse();
+
+    let visible = 0;
+    let cutoff = 0;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      if (isVisibleRole(mapping[chain[i]])) {
+        visible += 1;
+        if (visible >= keepVisible) {
+          cutoff = i;
+          break;
+        }
+      }
+    }
+    if (cutoff === 0 && visible < keepVisible) return false;
+
+    const keep = new Set(chain.slice(cutoff));
+    const next = {};
+    for (const kid of keep) {
+      const node = mapping[kid];
+      if (!node) continue;
+      next[kid] = {
+        ...node,
+        children: Array.isArray(node.children) ? node.children.filter((c) => keep.has(c)) : [],
+      };
+    }
+    const first = chain[cutoff];
+    if (next[first]) next[first] = { ...next[first], parent: null };
+    data.mapping = next;
+    return true;
+  }
+
+  function isConversationGet(url, init) {
+    const method = (init?.method || 'GET').toUpperCase();
+    if (method !== 'GET') return false;
+    if (!url || url.includes('/f/conversation') || url.includes('/conversations')) return false;
+    return /\/backend-api\/conversation\/[0-9a-f-]{36}/i.test(url);
+  }
+
+  function wrapConversationJson(response) {
+    if (!response || !response.ok) return response;
+    const originalJson = response.json.bind(response);
+    response.json = async () => {
+      const data = await originalJson();
+      try {
+        if (trimConversationInPlace(data)) stats.convTrimmed += 1;
+        else stats.convTrimSkipped += 1;
+      } catch {
+        stats.convTrimSkipped += 1;
+      }
+      return data;
+    };
+    return response;
+  }
+
+  function noteSentinel(url) {
+    if (!url) return;
+    for (const p of SENTINEL_MEASURE) {
+      if (url.includes(p)) {
+        stats.sentinelSeen += 1;
+        return;
+      }
+    }
+  }
+
+  // SPA nav signal for content script (isolated world can't patch page history)
+  try {
+    const wrapHist = (key) => {
+      const orig = history[key].bind(history);
+      history[key] = function (...args) {
+        const ret = orig(...args);
+        try { document.dispatchEvent(new CustomEvent('chatpruner:navigate')); } catch { }
+        return ret;
+      };
+    };
+    wrapHist('pushState');
+    wrapHist('replaceState');
+  } catch { /* ponytail */ }
 
   const TOKEN_KEYS = ['viewToken', 'view_token', 'processStreamUrl', 'process_stream_url'];
 
@@ -356,6 +468,7 @@
 
   window.fetch = function chatPrunerNetGuardFetch(resource, init) {
     const url = urlOf(resource);
+    noteSentinel(url);
 
     if (shouldBlock(url)) {
       stats.blocked++;
@@ -401,8 +514,16 @@
       return sniffMcpFetchResponse(originalFetch(resource, init), reqBody);
     }
 
+    // ponytail: one parse — override json() instead of clone/text/stringify
+    if (trimFlagOn() && isConversationGet(url, init)) {
+      return originalFetch(resource, init).then(wrapConversationJson);
+    }
+
     return originalFetch(resource, init);
   };
+
+  // export for tests / console
+  window.__chatPrunerTrimConversation = trimConversationInPlace;
 
   const originalSendBeacon = navigator.sendBeacon?.bind(navigator);
   if (originalSendBeacon) {

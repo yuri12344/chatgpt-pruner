@@ -112,7 +112,7 @@
 
   const BLOCK_PATTERNS = [
     '/ces/v1/t', '/ces/v1/m', '/ces/v1/i', '/ces/v1/p', '/ces/statsc/',
-    '/ces/v1/telemetry/', '/backend-api/lat/', '/backend-api/sentinel/ping',
+    '/ces/v1/telemetry/', '/backend-api/lat/',
     'ab.chatgpt.com/v1/rgstr', 'dd-api-key=', 'ddforward='
   ];
 

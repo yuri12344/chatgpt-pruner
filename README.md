@@ -31,13 +31,16 @@ Blocks or softens ChatGPT-side traffic that freezes long MCP sessions:
 |--------|--------|
 | `connectors/list_accessible` (large catalog) | cache pass-through 2 min — real first fetch, then local replay |
 | `connectors/links/list_accessible` | same cache — **no** empty stub |
-| `ces/v1/rgstr`, sentinel heartbeat | block |
+| `ces/v1/rgstr` | block |
+| Sentinel ping/heartbeat | **not blocked** (measured via `__chatPrunerNetGuardStats.sentinelSeen`) |
 | `widget_state` | throttle to 1× / 12s |
 | `sprites-core-*.svg` | cache + inflight dedupe **only for `fetch`/XHR** (parser/DOM loads bypass) |
 | sidebar `conversations` + `gizmos/.../conversations` | in-flight dedupe + 60s cache (only bodies with `items[]`) |
 | `call_mcp` + `runtime mismatch` | circuit breaker — first fatal 400 trips, then stubbed locally |
 
-**v1.9.1:** Cookie `split` memoization (cuts repeated `getCookies`), DNR for `api.oaistatsig.com` + `featuregates.org`, default Keep 10.
+**v1.11.0:** Auto on + Keep 6 by default; cold-only `content-visibility`; widget hibernation; scroll coalesce without wheel; Sentinel unblocked; optional JSON trim (`localStorage.chatpruner:trim-conversation-json=1`); low-motion mode.
+
+**v1.9.1:** Cookie `split` memoization (cuts repeated `getCookies`), DNR for `api.oaistatsig.com` + `featuregates.org`.
 
 **v1.9.0:** RunTask relief — always-on `content-visibility: auto` on turns, MAIN-world scroll/wheel coalesce (`scroll-patch.js`), DNR for `*/telemetry/intake` + `events.statsigapi.net`.
 

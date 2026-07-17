@@ -311,9 +311,36 @@
   background: #21262d;
 }
 
-/* Always on: skip layout/paint for off-screen turns so React Hd/Gd touch less. */
-[data-testid^="conversation-turn-"],
-[data-turn-id-container] {
+/* Cold turns only (last 2 stay hot / live). */
+.chatpruner-cold {
   content-visibility: auto;
   contain-intrinsic-size: auto 480px;
+}
+
+.chatprune-hibernated-widget {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(255, 255, 255, .28);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .35);
+  color: #ddd;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+html.chatpruner-low-motion *,
+html.chatpruner-low-motion *::before,
+html.chatpruner-low-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+html.chatpruner-no-effects * {
+  backdrop-filter: none !important;
+  filter: none !important;
 }
